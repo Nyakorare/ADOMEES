@@ -12,8 +12,22 @@
       </svg>
     </button>
   </div>
-  <div class="space-x-4">
-    <button onclick="openModal('loginModal')" class="btn btn-primary hover:scale-105 transition-transform duration-300">Login</button>
-    <button onclick="openModal('registerModal')" class="btn btn-secondary hover:scale-105 transition-transform duration-300">Register</button>
+  <div class="flex items-center space-x-4">
+    <div class="bg-blue-500 hover:bg-blue-600 rounded-lg shadow-md transition-all duration-300 transform hover:-translate-y-1 hover:shadow-lg">
+      <button onclick="openModal('loginModal')" class="btn text-white font-medium px-4 py-2 flex items-center">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
+        </svg>
+        Login
+      </button>
+    </div>
+    <div class="bg-accent hover:bg-accent-dark rounded-lg shadow-md transition-all duration-300 transform hover:-translate-y-1 hover:shadow-lg">
+      <button onclick="openModal('registerModal')" class="btn text-white font-medium px-4 py-2 flex items-center">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+        </svg>
+        Register
+      </button>
+    </div>
   </div>
 </header> 

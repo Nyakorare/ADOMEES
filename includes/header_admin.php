@@ -12,8 +12,17 @@
       </svg>
     </button>
   </div>
-  <div class="flex items-center space-x-4">
-    <span class="text-gray-700 dark:text-gray-300">Welcome, <span class="font-semibold text-secondary"><?php echo htmlspecialchars($_SESSION['username']); ?></span> <span class="px-2 py-1 text-xs rounded-full bg-accent-light text-white"><?php echo ucfirst($role); ?></span></span>
-    <a href="../auth/logout.php" class="btn btn-danger hover:scale-105 transition-transform duration-300">Logout</a>
+  <div class="flex items-center">
+    <div class="bg-gray-100 dark:bg-primary rounded-lg p-3 mr-4 shadow-sm hover:shadow-md transition-all duration-300 transform hover:-translate-y-1">
+      <span class="text-gray-700 dark:text-gray-300">Welcome, <span class="font-semibold text-secondary"><?php echo htmlspecialchars($_SESSION['username']); ?></span> <span class="px-2 py-1 text-xs rounded-full bg-accent-light text-white animate-pulse"><?php echo ucfirst($role); ?></span></span>
+    </div>
+    <div class="bg-red-500 hover:bg-red-600 rounded-lg shadow-md transition-all duration-300 transform hover:-translate-y-1 hover:shadow-lg">
+      <a href="../auth/logout.php" class="btn text-white font-medium px-4 py-2 flex items-center">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+        </svg>
+        Logout
+      </a>
+    </div>
   </div>
 </header> 
