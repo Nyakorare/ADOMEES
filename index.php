@@ -21,7 +21,8 @@ unset($_SESSION['success']);
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ADOMee$ - Login</title>
+  <title>ADOMee$</title>
+  <link rel="icon" type="image/x-icon" href="assets/favicon.ico">
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -72,6 +73,25 @@ unset($_SESSION['success']);
       @apply bg-white dark:bg-primary-light p-6 rounded-xl shadow-lg hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border border-gray-200 dark:border-gray-600 backdrop-blur-sm;
     }
   </style>
+  <script>
+    // Check for saved theme preference, otherwise use system preference
+    if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+      document.documentElement.classList.add('dark')
+    } else {
+      document.documentElement.classList.remove('dark')
+    }
+
+    // Function to toggle dark mode
+    function toggleDarkMode() {
+      if (document.documentElement.classList.contains('dark')) {
+        document.documentElement.classList.remove('dark')
+        localStorage.theme = 'light'
+      } else {
+        document.documentElement.classList.add('dark')
+        localStorage.theme = 'dark'
+      }
+    }
+  </script>
 </head>
 
 <body class="bg-light dark:bg-dark min-h-screen flex flex-col transition-colors duration-300">
@@ -79,48 +99,92 @@ unset($_SESSION['success']);
   <header class="bg-white dark:bg-primary-light shadow-md">
     <div class="container mx-auto px-4 py-4 flex justify-between items-center">
       <div class="flex items-center">
+        <img src="assets/logo.png" alt="ADOMee$ Logo" class="h-10 mr-2">
         <h1 class="text-2xl font-bold text-secondary">ADOMee$</h1>
       </div>
       <div class="flex items-center space-x-4">
-        <span class="text-gray-700 dark:text-gray-300">Document Management System</span>
+        <button onclick="toggleDarkMode()" class="p-2 rounded-full bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-gray-800 dark:text-yellow-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+          </svg>
+        </button>
       </div>
     </div>
   </header>
 
   <!-- Main Content -->
-  <main class="flex-grow container mx-auto p-6 flex justify-center items-center">
-    <div class="max-w-md w-full">
-      <?php if ($error): ?>
-        <div class="bg-danger text-white p-4 rounded-lg mb-6">
-          <?php echo htmlspecialchars($error); ?>
-        </div>
-      <?php endif; ?>
+  <main class="flex-grow container mx-auto p-6 flex justify-between items-center">
+    <!-- Logo Section (Left Side) -->
+    <div class="hidden md:block w-1/2 flex justify-center">
+      <img src="assets/logo.png" alt="ADOMee$ Logo" class="max-w-md">
+    </div>
+    
+    <!-- Login Section (Right Side) -->
+    <div class="w-full md:w-1/2 flex justify-center">
+      <div class="max-w-md w-full">
+        <?php if ($error): ?>
+          <div class="bg-danger text-white p-4 rounded-lg mb-6">
+            <?php echo htmlspecialchars($error); ?>
+          </div>
+        <?php endif; ?>
 
-      <?php if ($success): ?>
-        <div class="bg-success text-white p-4 rounded-lg mb-6">
-          <?php echo htmlspecialchars($success); ?>
-        </div>
-      <?php endif; ?>
+        <?php if ($success): ?>
+          <div class="bg-success text-white p-4 rounded-lg mb-6">
+            <?php echo htmlspecialchars($success); ?>
+          </div>
+        <?php endif; ?>
 
-      <div class="card">
-        <h2 class="text-2xl font-bold text-secondary mb-6 text-center">Login</h2>
-        <form action="auth/login.php" method="POST">
-          <div class="mb-4">
-            <label for="username" class="block text-gray-700 dark:text-gray-300 mb-2">Username</label>
-            <input type="text" id="username" name="username" required
-              class="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-primary dark:text-white focus:ring-secondary focus:border-secondary">
+        <div class="card">
+          <h2 class="text-2xl font-bold text-secondary mb-6 text-center" id="form-title">Login</h2>
+          <form action="auth/login.php" method="POST" id="login-form">
+            <div class="mb-4">
+              <label for="username" class="block text-gray-700 dark:text-gray-300 mb-2">Username</label>
+              <input type="text" id="username" name="username" required
+                class="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-primary dark:text-white focus:ring-secondary focus:border-secondary">
+            </div>
+            <div class="mb-6">
+              <label for="password" class="block text-gray-700 dark:text-gray-300 mb-2">Password</label>
+              <input type="password" id="password" name="password" required
+                class="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-primary dark:text-white focus:ring-secondary focus:border-secondary">
+            </div>
+            <div class="flex justify-center">
+              <button type="submit" class="btn bg-accent hover:bg-accent-dark text-white font-bold py-3 px-8 rounded-lg shadow-lg transform transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-accent focus:ring-opacity-50">
+                Login
+              </button>
+            </div>
+          </form>
+          
+          <!-- Registration Form (Hidden by default) -->
+          <form action="auth/register.php" method="POST" id="register-form" class="hidden">
+            <div class="mb-4">
+              <label for="reg-username" class="block text-gray-700 dark:text-gray-300 mb-2">Username</label>
+              <input type="text" id="reg-username" name="username" required
+                class="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-primary dark:text-white focus:ring-secondary focus:border-secondary">
+            </div>
+            <div class="mb-4">
+              <label for="reg-email" class="block text-gray-700 dark:text-gray-300 mb-2">Email</label>
+              <input type="email" id="reg-email" name="email" required
+                class="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-primary dark:text-white focus:ring-secondary focus:border-secondary">
+            </div>
+            <div class="mb-6">
+              <label for="reg-password" class="block text-gray-700 dark:text-gray-300 mb-2">Password</label>
+              <input type="password" id="reg-password" name="password" required
+                class="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-primary dark:text-white focus:ring-secondary focus:border-secondary">
+            </div>
+            <div class="flex justify-center">
+              <button type="submit" class="btn bg-accent hover:bg-accent-dark text-white font-bold py-3 px-8 rounded-lg shadow-lg transform transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-accent focus:ring-opacity-50">
+                Register
+              </button>
+            </div>
+          </form>
+          
+          <div class="mt-4 text-center">
+            <p class="text-gray-600 dark:text-gray-400">
+              <span id="toggle-text">Don't have an account?</span>
+              <a href="#" id="toggle-form" class="text-accent hover:text-accent-dark font-medium">Sign Up</a>
+            </p>
           </div>
-          <div class="mb-6">
-            <label for="password" class="block text-gray-700 dark:text-gray-300 mb-2">Password</label>
-            <input type="password" id="password" name="password" required
-              class="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-primary dark:text-white focus:ring-secondary focus:border-secondary">
-          </div>
-          <div class="flex justify-center">
-            <button type="submit" class="btn bg-accent hover:bg-accent-dark text-white font-bold py-3 px-8 rounded-lg shadow-lg transform transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-accent focus:ring-opacity-50">
-              Login
-            </button>
-          </div>
-        </form>
+        </div>
       </div>
     </div>
   </main>
@@ -131,6 +195,37 @@ unset($_SESSION['success']);
       <p class="text-gray-600 dark:text-gray-300">&copy; 2025 ADOMee$. All rights reserved.</p>
     </div>
   </footer>
+  
+  <script>
+    // Form toggle functionality
+    document.addEventListener('DOMContentLoaded', function() {
+      const loginForm = document.getElementById('login-form');
+      const registerForm = document.getElementById('register-form');
+      const toggleForm = document.getElementById('toggle-form');
+      const formTitle = document.getElementById('form-title');
+      const toggleText = document.getElementById('toggle-text');
+      
+      toggleForm.addEventListener('click', function(e) {
+        e.preventDefault();
+        
+        if (loginForm.classList.contains('hidden')) {
+          // Switch to login form
+          loginForm.classList.remove('hidden');
+          registerForm.classList.add('hidden');
+          formTitle.textContent = 'Login';
+          toggleText.textContent = "Don't have an account?";
+          toggleForm.textContent = 'Sign Up';
+        } else {
+          // Switch to register form
+          loginForm.classList.add('hidden');
+          registerForm.classList.remove('hidden');
+          formTitle.textContent = 'Register';
+          toggleText.textContent = 'Already have an account?';
+          toggleForm.textContent = 'Login';
+        }
+      });
+    });
+  </script>
 </body>
 
 </html>
