@@ -129,8 +129,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Support
 
 For support, please contact:
-- Email: support@adomees.com
-- Documentation: [docs.adomees.com](https://docs.adomees.com)
+- Email: g1galba042804@gmail.com
 
 ## Acknowledgments
 
