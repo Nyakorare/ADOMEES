@@ -1,64 +1,80 @@
-# ADOMee$ - Role-Based and Attribute-Based Access Control System
+# ADOMee$ - Role-Based Access Control System
 
-ADOMee$ is a comprehensive access control system that implements both Role-Based Access Control (RBAC) and Attribute-Based Access Control (ABAC) to provide flexible and secure access management for your applications.
+ADOMee$ is a comprehensive access control system that implements Role-Based Access Control (RBAC) to provide secure and flexible access management for your applications.
 
 ## Features
 
-### Role-Based Access Control (RBAC)
-- **User Roles**: Predefined roles (Admin, Sales, Editor, Operator, Client)
-- **Role Assignment**: Dynamic role assignment and management
-- **Permission Inheritance**: Hierarchical role structure with permission inheritance
-- **Role-Based Views**: Customized dashboard views based on user roles
+### User Management
+- **User Registration**: Secure user registration with email validation
+- **User Authentication**: Secure login system with session management
+- **Role Management**: Dynamic role assignment and management
+- **User Search**: Advanced search and filtering capabilities
+- **User Deletion**: Secure user deletion with confirmation
 
-### Attribute-Based Access Control (ABAC)
-- **Dynamic Access Rules**: Access control based on user attributes and environmental conditions
-- **Context-Aware Permissions**: Time-based, location-based, and resource-based access control
-- **Flexible Policy Definition**: Define complex access rules using multiple attributes
+### Role-Based Access Control (RBAC)
+- **Predefined Roles**: 
+  - Admin: Full system access and user management
+  - Sales: Client management and sales tracking
+  - Editor: Content management and task assignment
+  - Operator: Task execution and status updates
+  - Client: View own data and place orders
+- **Role-Specific Views**: Customized dashboard views based on user roles
+- **Dynamic Role Assignment**: Admin can modify user roles
+- **Role-Based Permissions**: Granular access control based on user roles
+
+### User Interface
+- **Modern Design**: Clean and intuitive interface
+- **Dark Mode**: System-wide dark mode support
+- **Responsive Layout**: Mobile-friendly design
+- **Interactive Elements**: Animated components and transitions
+- **Real-time Updates**: Dynamic content updates without page reload
 
 ### Security Features
-- **Secure Authentication**: Argon2id password hashing
-- **SQL Injection Prevention**: Input sanitization and prepared statements
-- **CSRF Protection**: Token-based Cross-Site Request Forgery protection
-- **Data Encryption**: AES-256-GCM encryption for sensitive data
-- **Session Management**: Secure session handling and timeout
+- **Secure Authentication**: Password hashing using PHP's built-in functions
+- **SQL Injection Prevention**: Prepared statements and parameter binding
+- **Session Security**: Secure session handling and validation
+- **Input Validation**: Comprehensive input sanitization
+- **CSRF Protection**: Token-based protection against cross-site request forgery
 
 ## System Architecture
 
-### User Roles
+### User Roles and Permissions
 1. **Admin**
-   - Full system access
-   - User management
-   - Role assignment
-   - System configuration
+   - Manage all users (create, edit, delete)
+   - Assign and modify user roles
+   - Access system-wide settings
+   - View all system data
 
 2. **Sales**
-   - Client management
-   - Sales tracking
-   - Order processing
-   - Editor assignment
+   - View and manage available clients
+   - Track current clients
+   - Assign editors to tasks
+   - Monitor sales progress
 
 3. **Editor**
-   - Content management
-   - Task assignment
+   - Manage assigned tasks
+   - Coordinate with sales agents
+   - Assign tasks to operators
    - Quality control
-   - Sales agent coordination
 
 4. **Operator**
-   - Task execution
-   - Status updates
-   - Resource management
+   - Execute assigned tasks
+   - Update task status
+   - View task details
+   - Manage resources
 
 5. **Client**
-   - View own data
-   - Place orders
-   - Track progress
-   - Communication
+   - View personal data
+   - Track order progress
+   - Place new orders
+   - Communicate with assigned sales agent
 
-### Access Control Implementation
-- **RBAC Layer**: Core role-based permissions
-- **ABAC Layer**: Attribute-based policy enforcement
-- **Policy Engine**: Rule evaluation and decision making
-- **Audit Logging**: Access control event tracking
+### Database Structure
+- **Users Table**: Stores user credentials and role information
+- **Clients Table**: Manages client information and status
+- **Files Table**: Tracks file assignments and status
+- **Role Changes Log**: Records role modification history
+- **User Deletions Log**: Tracks user deletion events
 
 ## Setup with XAMPP
 
@@ -68,68 +84,102 @@ ADOMee$ is a comprehensive access control system that implements both Role-Based
    - Apache (included in XAMPP)
    - OpenSSL extension (included in XAMPP)
 
-2. **Configuration**
-   - Place the project in your XAMPP's htdocs directory
-   - Ensure your MySQL database is running
-   - Update database credentials in `php/db.php`
-   - Configure security settings in `php/security_utils.php`
+2. **Installation**
+   ```bash
+   # Clone the repository
+   git clone https://github.com/Nyakorare/ADOMEES.git
+   
+   # Move to XAMPP's htdocs directory
+   mv adomees /path/to/xampp/htdocs/
+   ```
+
+3. **Configuration**
+   - Update database credentials in `php/db.php`:
+     ```php
+     $servername = "localhost";
+     $username = "your_username";
+     $password = "your_password";
+     $dbname = "adomees";
+     ```
+   - Import the database schema from `database/schema.sql`
+   - Configure Apache virtual host if needed
+
+4. **Security Setup**
+   - Set proper file permissions
+   - Configure SSL certificate for HTTPS
+   - Update session configuration in `php.ini`
 
 ## Usage
 
 ### User Management
 ```php
-// Example: Creating a new user with role
+// Example: Creating a new user
 $user = new User();
 $user->create([
     'username' => 'john_doe',
+    'email' => 'john@example.com',
     'password' => 'secure_password',
-    'role' => 'editor'
+    'role' => 'client'
 ]);
+
+// Example: Updating user role
+$user->updateRole($user_id, 'editor');
+
+// Example: Deleting a user
+$user->delete($user_id);
 ```
 
 ### Access Control
 ```php
-// Example: Checking permissions
-if ($rbac->hasPermission('edit_content')) {
-    // Allow content editing
+// Example: Checking user role
+if ($_SESSION['role'] === 'admin') {
+    // Grant admin access
 }
 
-// Example: Attribute-based access
-if ($abac->evaluate($user, $resource, $action)) {
-    // Allow access based on attributes
+// Example: Role-based view rendering
+switch ($_SESSION['role']) {
+    case 'admin':
+        // Show admin dashboard
+        break;
+    case 'sales':
+        // Show sales dashboard
+        break;
+    // ... other roles
 }
 ```
 
 ## Security Best Practices
 
-1. **Password Security**
-   - Use strong password policies
-   - Implement password expiration
-   - Enable two-factor authentication
-
-2. **Session Security**
-   - Use secure session handling
-   - Implement session timeout
+1. **Authentication**
+   - Use strong password policies (minimum 6 characters)
+   - Implement secure password hashing
+   - Enable session timeout
    - Prevent session fixation
 
-3. **Data Protection**
-   - Encrypt sensitive data
-   - Use prepared statements
-   - Implement input validation
-
-4. **Access Control**
+2. **Authorization**
    - Follow principle of least privilege
-   - Regular permission audits
-   - Monitor access patterns
+   - Validate user roles on every request
+   - Implement role-based access control
+   - Log all access attempts
+
+3. **Data Protection**
+   - Use prepared statements for all database queries
+   - Sanitize all user input
+   - Implement CSRF protection
+   - Encrypt sensitive data
+
+4. **Session Management**
+   - Use secure session handling
+   - Implement session timeout
+   - Regenerate session ID on login
+   - Clear session data on logout
 
 ## Support
 
 For support, please contact:
 - Email: g1galba042804@gmail.com
+- GitHub Issues: https://github.com/yourusername/adomees/issues
 
-## Acknowledgments
+## License
 
-- PHP Security Consortium
-- OWASP Security Guidelines
-- NIST RBAC Standard
-- XACML ABAC Model 
+This project is licensed under the Apache License 2.0 - see the [LICENSE.md](LICENSE.md) file for details.
