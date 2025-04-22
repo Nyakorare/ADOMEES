@@ -122,10 +122,6 @@ if ($abac->evaluate($user, $resource, $action)) {
    - Regular permission audits
    - Monitor access patterns
 
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
 ## Support
 
 For support, please contact:
