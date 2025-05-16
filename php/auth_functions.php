@@ -44,7 +44,7 @@ function loginUser($username, $password, $conn) {
 }
 
 function getUserById($user_id, $conn) {
-    $stmt = $conn->prepare("SELECT id, username, email, role FROM users WHERE id = ?");
+    $stmt = $conn->prepare("SELECT id, username, email, role, is_available FROM users WHERE id = ?");
     $stmt->bind_param("i", $user_id);
     $stmt->execute();
     $result = $stmt->get_result();
