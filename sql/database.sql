@@ -45,7 +45,7 @@ CREATE TABLE documents (
 CREATE TABLE document_workflow (
     id INT AUTO_INCREMENT PRIMARY KEY,
     document_id INT NOT NULL,
-    current_stage ENUM('sales_review', 'editor_polishing', 'printing_document', 'payment_pending', 'finished') DEFAULT 'sales_review',
+    current_stage ENUM('pending', 'sales_review', 'editor_polishing', 'printing_document', 'payment_pending', 'completed') DEFAULT 'pending',
     sales_agent_id INT,
     editor_id INT,
     operator_id INT,
@@ -59,6 +59,19 @@ CREATE TABLE document_workflow (
     FOREIGN KEY (sales_agent_id) REFERENCES users(id) ON DELETE SET NULL,
     FOREIGN KEY (editor_id) REFERENCES users(id) ON DELETE SET NULL,
     FOREIGN KEY (operator_id) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Workflow history table to track status changes
+CREATE TABLE workflow_history (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    document_id INT NOT NULL,
+    from_stage VARCHAR(50) NOT NULL,
+    to_stage VARCHAR(50) NOT NULL,
+    changed_by INT NOT NULL,
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE,
+    FOREIGN KEY (changed_by) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Document assignments table

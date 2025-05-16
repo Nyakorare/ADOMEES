@@ -114,13 +114,15 @@ function getSalesAgentDocuments($sales_agent_id, $conn) {
 function getEditorDocuments($editor_id, $conn) {
     $stmt = $conn->prepare("
         SELECT d.*, u.username as client_name, s.username as sales_agent_name,
-               w.current_stage, w.editor_notes
+               w.current_stage, w.editor_notes, w.updated_at as workflow_updated_at
         FROM documents d 
         JOIN users u ON d.client_id = u.id 
         JOIN document_assignments da ON d.id = da.document_id
         JOIN users s ON da.sales_agent_id = s.id
         JOIN document_workflow w ON d.id = w.document_id
-        WHERE w.editor_id = ? OR (w.current_stage = 'sales_review' AND w.editor_id IS NULL)
+        WHERE w.editor_id = ? 
+        AND w.current_stage = 'editor_polishing'
+        ORDER BY w.updated_at DESC
     ");
     $stmt->bind_param("i", $editor_id);
     $stmt->execute();
@@ -139,6 +141,35 @@ function getOperatorDocuments($operator_id, $conn) {
         WHERE w.operator_id = ? OR (w.current_stage = 'editor_review' AND w.operator_id IS NULL)
     ");
     $stmt->bind_param("i", $operator_id);
+    $stmt->execute();
+    return $stmt->get_result();
+}
+
+// Function to add workflow history entry
+function addWorkflowHistory($document_id, $from_stage, $to_stage, $changed_by, $notes, $conn) {
+    $stmt = $conn->prepare("
+        INSERT INTO workflow_history (
+            document_id, 
+            from_stage, 
+            to_stage, 
+            changed_by, 
+            notes
+        ) VALUES (?, ?, ?, ?, ?)
+    ");
+    $stmt->bind_param("issis", $document_id, $from_stage, $to_stage, $changed_by, $notes);
+    return $stmt->execute();
+}
+
+// Function to get workflow history
+function getWorkflowHistory($document_id, $conn) {
+    $stmt = $conn->prepare("
+        SELECT h.*, u.username as changed_by_name
+        FROM workflow_history h
+        JOIN users u ON h.changed_by = u.id
+        WHERE h.document_id = ?
+        ORDER BY h.created_at DESC
+    ");
+    $stmt->bind_param("i", $document_id);
     $stmt->execute();
     return $stmt->get_result();
 }
@@ -163,6 +194,12 @@ function assignDocumentToSalesAgent($document_id, $sales_agent_id, $conn) {
         $name_stmt->execute();
         $sales_agent_name = $name_stmt->get_result()->fetch_assoc()['username'];
         
+        // Get current stage
+        $stage_stmt = $conn->prepare("SELECT current_stage FROM document_workflow WHERE document_id = ?");
+        $stage_stmt->bind_param("i", $document_id);
+        $stage_stmt->execute();
+        $current_stage = $stage_stmt->get_result()->fetch_assoc()['current_stage'] ?? 'pending';
+        
         // Assign document to sales agent
         $assign_stmt = $conn->prepare("INSERT INTO document_assignments (document_id, sales_agent_id) VALUES (?, ?)");
         $assign_stmt->bind_param("ii", $document_id, $sales_agent_id);
@@ -180,6 +217,16 @@ function assignDocumentToSalesAgent($document_id, $sales_agent_id, $conn) {
         ");
         $update_stmt->bind_param("isi", $sales_agent_id, $sales_agent_name, $document_id);
         $update_stmt->execute();
+        
+        // Add workflow history
+        addWorkflowHistory(
+            $document_id,
+            $current_stage,
+            'sales_review',
+            $sales_agent_id,
+            "Document assigned to sales agent: $sales_agent_name",
+            $conn
+        );
         
         $conn->commit();
         return ['success' => true];
@@ -200,6 +247,12 @@ function assignDocumentToEditor($document_id, $editor_id, $conn) {
         $name_stmt->execute();
         $editor_name = $name_stmt->get_result()->fetch_assoc()['username'];
         
+        // Get current stage
+        $stage_stmt = $conn->prepare("SELECT current_stage FROM document_workflow WHERE document_id = ?");
+        $stage_stmt->bind_param("i", $document_id);
+        $stage_stmt->execute();
+        $current_stage = $stage_stmt->get_result()->fetch_assoc()['current_stage'];
+        
         $stmt = $conn->prepare("
             UPDATE document_workflow 
             SET editor_id = ?, 
@@ -210,6 +263,16 @@ function assignDocumentToEditor($document_id, $editor_id, $conn) {
         $stmt->bind_param("isi", $editor_id, $editor_name, $document_id);
         
         if ($stmt->execute()) {
+            // Add workflow history
+            addWorkflowHistory(
+                $document_id,
+                $current_stage,
+                'editor_polishing',
+                $editor_id,
+                "Document assigned to editor: $editor_name",
+                $conn
+            );
+            
             $conn->commit();
             return ['success' => true];
         }
@@ -232,6 +295,12 @@ function assignDocumentToOperator($document_id, $operator_id, $conn) {
         $name_stmt->execute();
         $operator_name = $name_stmt->get_result()->fetch_assoc()['username'];
         
+        // Get current stage
+        $stage_stmt = $conn->prepare("SELECT current_stage FROM document_workflow WHERE document_id = ?");
+        $stage_stmt->bind_param("i", $document_id);
+        $stage_stmt->execute();
+        $current_stage = $stage_stmt->get_result()->fetch_assoc()['current_stage'];
+        
         $stmt = $conn->prepare("
             UPDATE document_workflow 
             SET operator_id = ?, 
@@ -242,6 +311,16 @@ function assignDocumentToOperator($document_id, $operator_id, $conn) {
         $stmt->bind_param("isi", $operator_id, $operator_name, $document_id);
         
         if ($stmt->execute()) {
+            // Add workflow history
+            addWorkflowHistory(
+                $document_id,
+                $current_stage,
+                'printing_document',
+                $operator_id,
+                "Document assigned to operator: $operator_name",
+                $conn
+            );
+            
             $conn->commit();
             return ['success' => true];
         }
@@ -267,6 +346,12 @@ function uploadPrintReceipt($document_id, $operator_id, $receipt_file, $notes, $
         $conn->begin_transaction();
         
         try {
+            // Get current stage
+            $stage_stmt = $conn->prepare("SELECT current_stage FROM document_workflow WHERE document_id = ?");
+            $stage_stmt->bind_param("i", $document_id);
+            $stage_stmt->execute();
+            $current_stage = $stage_stmt->get_result()->fetch_assoc()['current_stage'];
+            
             // Insert receipt record
             $receipt_stmt = $conn->prepare("
                 INSERT INTO print_receipts (document_id, operator_id, receipt_path, notes) 
@@ -286,6 +371,16 @@ function uploadPrintReceipt($document_id, $operator_id, $receipt_file, $notes, $
             ");
             $update_stmt->bind_param("si", $file_name, $document_id);
             $update_stmt->execute();
+            
+            // Add workflow history
+            addWorkflowHistory(
+                $document_id,
+                $current_stage,
+                'payment_pending',
+                $operator_id,
+                "Print receipt uploaded: $notes",
+                $conn
+            );
             
             $conn->commit();
             return ['success' => true];
@@ -420,17 +515,33 @@ function markDocumentAsFinished($document_id, $conn) {
     $conn->begin_transaction();
     
     try {
+        // Get current stage
+        $stage_stmt = $conn->prepare("SELECT current_stage FROM document_workflow WHERE document_id = ?");
+        $stage_stmt->bind_param("i", $document_id);
+        $stage_stmt->execute();
+        $current_stage = $stage_stmt->get_result()->fetch_assoc()['current_stage'];
+        
         // Update document status and workflow
         $update_stmt = $conn->prepare("
             UPDATE documents d 
             JOIN document_workflow w ON d.id = w.document_id 
             SET d.status = 'completed', 
-                w.current_stage = 'finished'
+                w.current_stage = 'completed'
             WHERE d.id = ?
         ");
         $update_stmt->bind_param("i", $document_id);
         
         if ($update_stmt->execute()) {
+            // Add workflow history
+            addWorkflowHistory(
+                $document_id,
+                $current_stage,
+                'completed',
+                $_SESSION['user_id'],
+                "Document marked as completed",
+                $conn
+            );
+            
             $conn->commit();
             return ['success' => true];
         }
