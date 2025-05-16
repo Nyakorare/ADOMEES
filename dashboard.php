@@ -1082,6 +1082,23 @@ td {
 
   </main>
 
+  <!-- Document Details Modal -->
+  <div id="documentDetailsModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden overflow-y-auto h-full w-full z-50">
+    <div class="relative top-20 mx-auto p-5 border w-3/4 max-w-4xl shadow-lg rounded-md bg-white dark:bg-primary-light">
+      <div class="mt-3">
+        <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Document Details</h3>
+        <div id="documentDetailsContent" class="space-y-4">
+          <!-- Content will be loaded dynamically -->
+        </div>
+        <div class="mt-4 flex justify-end">
+          <button onclick="closeDocumentDetailsModal()" class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-primary rounded-md">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Footer -->
   <footer class="bg-white dark:bg-primary-light text-center py-6 text-sm border-t border-gray-200 dark:border-gray-700">
     <div class="container mx-auto">
@@ -1168,10 +1185,80 @@ td {
             });
         }
     });
-  </script>
 
-  <script>
-    // ... existing code ...
+    // Document Details Modal Functions
+    function openDocumentDetailsModal(documentId) {
+        const modal = document.getElementById('documentDetailsModal');
+        const content = document.getElementById('documentDetailsContent');
+        
+        // Show loading state
+        content.innerHTML = '<div class="text-center"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-accent mx-auto"></div><p class="mt-2 text-gray-600 dark:text-gray-400">Loading document details...</p></div>';
+        modal.classList.remove('hidden');
+        
+        // Fetch document details
+        fetch('php/document_handlers.php', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: `action=get_document_details&document_id=${documentId}`
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const doc = data.document;
+                content.innerHTML = `
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <h4 class="font-semibold text-gray-700 dark:text-gray-300">Basic Information</h4>
+                            <div class="mt-2 space-y-2">
+                                <p><span class="font-medium">Title:</span> ${doc.title}</p>
+                                <p><span class="font-medium">Description:</span> ${doc.description || 'N/A'}</p>
+                                <p><span class="font-medium">Client:</span> ${doc.client_name}</p>
+                                <p><span class="font-medium">Status:</span> ${doc.current_stage.replace(/_/g, ' ').toUpperCase()}</p>
+                            </div>
+                        </div>
+                        <div>
+                            <h4 class="font-semibold text-gray-700 dark:text-gray-300">Workflow Information</h4>
+                            <div class="mt-2 space-y-2">
+                                <p><span class="font-medium">Sales Agent:</span> ${doc.sales_agent_name || 'Not assigned'}</p>
+                                <p><span class="font-medium">Editor:</span> ${doc.editor_name || 'Not assigned'}</p>
+                                <p><span class="font-medium">Operator:</span> ${doc.operator_name || 'Not assigned'}</p>
+                                <p><span class="font-medium">Last Updated:</span> ${new Date(doc.workflow_updated_at).toLocaleString()}</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-6">
+                        <h4 class="font-semibold text-gray-700 dark:text-gray-300">Workflow History</h4>
+                        <div class="mt-2 space-y-2">
+                            ${doc.workflow_history.map(entry => `
+                                <div class="p-2 bg-gray-50 dark:bg-primary rounded">
+                                    <p class="text-sm">
+                                        <span class="font-medium">${entry.from_stage} → ${entry.to_stage}</span>
+                                        <span class="text-gray-500 dark:text-gray-400">by ${entry.changed_by_name}</span>
+                                        <span class="text-gray-500 dark:text-gray-400">on ${new Date(entry.created_at).toLocaleString()}</span>
+                                    </p>
+                                    ${entry.notes ? `<p class="text-sm text-gray-600 dark:text-gray-400 mt-1">${entry.notes}</p>` : ''}
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            } else {
+                content.innerHTML = `<div class="text-red-500">${data.message || 'Failed to load document details'}</div>`;
+            }
+        })
+        .catch(error => {
+            content.innerHTML = '<div class="text-red-500">An error occurred while loading document details</div>';
+            console.error('Error:', error);
+        });
+    }
+
+    function closeDocumentDetailsModal() {
+        const modal = document.getElementById('documentDetailsModal');
+        modal.classList.add('hidden');
+    }
+
     // Availability toggle functionality
     function updateAvailability(isAvailable) {
         fetch('php/document_handlers.php', {
@@ -1207,7 +1294,37 @@ td {
             });
         }
     });
-    // ... existing code ...
+
+    // Client Acceptance Functions
+    function acceptClient(documentId) {
+        if (!confirm('Are you sure you want to accept this client?')) {
+            return;
+        }
+
+        fetch('php/document_handlers.php', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: `action=accept_client&document_id=${documentId}`
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showNotification('Client accepted successfully', 'success');
+                // Refresh the page after a short delay
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1000);
+            } else {
+                showNotification(data.message || 'Failed to accept client', 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showNotification('An error occurred while accepting the client', 'error');
+        });
+    }
   </script>
 </body>
 

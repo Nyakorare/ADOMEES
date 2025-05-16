@@ -434,9 +434,9 @@ function getDocumentDetails($document_id, $conn) {
                w.editor_id,
                w.operator_id,
                w.updated_at as workflow_updated_at,
-               p.amount as payment_amount,
                p.payment_type,
                p.status as payment_status,
+               p.receipt_path as payment_receipt_path,
                pr.receipt_path as print_receipt_path,
                pr.notes as print_receipt_notes,
                da.assigned_at as sales_assigned_at
