@@ -1,16 +1,20 @@
 <?php
-$servername = "localhost";
-$username = "root";
-$password = "";
-$dbname = "adomees";
+// Database configuration
+$db_host = 'localhost';
+$db_user = 'root';
+$db_pass = '';
+$db_name = 'adomees';
 
 // Create connection
-$conn = new mysqli($servername, $username, $password, $dbname);
+$conn = new mysqli($db_host, $db_user, $db_pass, $db_name);
 
 // Check connection
 if ($conn->connect_error) {
     die("Connection failed: " . $conn->connect_error);
 }
+
+// Set charset to utf8mb4
+$conn->set_charset("utf8mb4");
 
 // Create payment_agreements table
 $sql = "CREATE TABLE IF NOT EXISTS payment_agreements (
@@ -45,4 +49,16 @@ $sql = "CREATE TABLE IF NOT EXISTS documents (
     FOREIGN KEY (client_id) REFERENCES users(id)
 )";
 $conn->query($sql);
+
+// Create user_activity_log table if it doesn't exist
+$conn->query("
+    CREATE TABLE IF NOT EXISTS user_activity_log (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        action VARCHAR(255) NOT NULL,
+        details TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+");
 ?>

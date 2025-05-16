@@ -38,13 +38,14 @@ $role_tabs = [
     ],
     'editor' => [
         ['id' => 'tasks', 'name' => 'Tasks'],
-        ['id' => 'sales_agents', 'name' => 'Sales Agents'],
         ['id' => 'printing_operators', 'name' => 'Printing Operators']
     ],
     'operator' => [
         ['id' => 'tasks', 'name' => 'Tasks']
     ],
-    'client' => []
+    'client' => [
+        ['id' => 'documents', 'name' => 'My Documents']
+    ]
 ];
 
 // Get tabs for current user role
@@ -669,15 +670,18 @@ td {
                     </button>
                 <?php endif; ?>
                 <?php if ($document['current_stage'] === 'payment_pending'): ?>
-                  <button onclick="requestPayment(<?php echo $document['id']; ?>)" class="text-blue-600 hover:text-blue-800 mr-3">
-                    Request Payment
-                    </button>
+                  <button onclick="requestPayment(<?php echo $document['id']; ?>)" 
+                          class="text-blue-600 hover:text-blue-800 mr-3"
+                          id="requestPaymentBtn_<?php echo $document['id']; ?>"
+                          <?php echo isset($document['payment_requested']) && $document['payment_requested'] ? 'disabled' : ''; ?>>
+                    <?php echo isset($document['payment_requested']) && $document['payment_requested'] ? 'Payment Requested' : 'Request Payment'; ?>
+                  </button>
                 <?php endif; ?>
-                <?php if ($document['current_stage'] === 'payment_pending' && $document['payment_status'] === 'accepted'): ?>
+                <?php if ($document['current_stage'] === 'payment_pending' && isset($document['payment_status']) && $document['payment_status'] === 'accepted'): ?>
                   <button onclick="markAsFinished(<?php echo $document['id']; ?>)" class="text-green-600 hover:text-green-800">
                     Mark as Finished
-                    </button>
-                    <?php endif; ?>
+                  </button>
+                <?php endif; ?>
                   </td>
                 </tr>
             <?php endwhile; ?>
@@ -795,14 +799,18 @@ td {
       <div class="flex justify-between items-center mb-6">
         <h2 class="text-xl font-semibold text-gray-900 dark:text-white">My Tasks</h2>
         <div class="flex items-center space-x-4">
-          <div class="flex items-center">
+          <div class="flex items-center bg-gray-100 dark:bg-primary p-2 rounded-lg">
+            <span class="mr-2 text-sm font-medium text-gray-700 dark:text-gray-300">Availability:</span>
             <label class="relative inline-flex items-center cursor-pointer">
               <input type="checkbox" id="availabilityToggle" class="sr-only peer" <?php echo $user['is_available'] ? 'checked' : ''; ?>>
-              <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-accent/20 dark:peer-focus:ring-accent/20 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-accent"></div>
-              <span class="ml-3 text-sm font-medium text-gray-600 dark:text-gray-400" id="availabilityStatus">
+              <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-accent/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-accent"></div>
+              <span class="ml-2 text-sm font-medium <?php echo $user['is_available'] ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'; ?>" id="availabilityStatus">
                 <?php echo $user['is_available'] ? 'Available' : 'Not Available'; ?>
               </span>
             </label>
+          </div>
+          <div class="relative">
+            <input type="text" id="taskSearch" placeholder="Search tasks..." class="px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-accent/20 dark:bg-primary dark:border-gray-700 dark:text-white">
           </div>
         </div>
       </div>
@@ -810,10 +818,10 @@ td {
         <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
           <thead class="bg-gray-50 dark:bg-primary">
             <tr>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Document Title</th>
               <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Client</th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Title</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider"><?php echo $user['role'] === 'editor' ? 'Sales Agent' : 'Editor'; ?></th>
               <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Assigned By</th>
               <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Assigned Date</th>
               <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
             </tr>
@@ -827,15 +835,46 @@ td {
                 $documents = getOperatorDocuments($_SESSION['user_id'], $conn);
             }
             
-            while ($document = $documents->fetch_assoc()):
+            if ($documents->num_rows === 0) {
+                    ?>
+                    <tr>
+                        <td colspan="6" class="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
+                  No tasks assigned at the moment.
+                        </td>
+                    </tr>
+            <?php
+            } else {
+              while ($document = $documents->fetch_assoc()) {
+                $stageClass = '';
+                switch ($document['current_stage']) {
+                            case 'editor_polishing':
+                    $stageClass = 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200';
+                    $stageText = 'In Progress';
+                    break;
+                  case 'editor_review':
+                    $stageClass = 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200';
+                    $stageText = 'Under Review';
+                    break;
+                            case 'printing_document':
+                    $stageClass = 'bg-pink-100 text-pink-800 dark:bg-pink-900 dark:text-pink-200';
+                    $stageText = 'Printing';
+                    break;
+                  default:
+                    $stageClass = 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200';
+                    $stageText = ucfirst(str_replace('_', ' ', $document['current_stage']));
+                }
             ?>
             <tr class="hover:bg-gray-50 dark:hover:bg-primary transition-colors">
-              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white"><?php echo htmlspecialchars($document['client_name']); ?></td>
-              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white"><?php echo htmlspecialchars($document['title']); ?></td>
-              <td class="px-6 py-4 whitespace-nowrap">
-                <span class="px-2 py-1 text-xs rounded-full <?php echo getStageColor($document['current_stage']); ?>">
-                  <?php echo formatStage($document['current_stage']); ?>
-                </span>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
+                            <?php echo htmlspecialchars($document['title']); ?>
+                <?php if ($document['description']): ?>
+                  <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    <?php echo htmlspecialchars(substr($document['description'], 0, 100)) . (strlen($document['description']) > 100 ? '...' : ''); ?>
+                  </div>
+                <?php endif; ?>
+                  </td>
+              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
+                <?php echo htmlspecialchars($document['client_name']); ?>
               </td>
               <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
                 <?php 
@@ -845,6 +884,11 @@ td {
                     echo htmlspecialchars($document['editor_name']);
                 }
                 ?>
+              </td>
+                  <td class="px-6 py-4 whitespace-nowrap">
+                            <span class="px-2 py-1 text-xs rounded-full <?php echo $stageClass; ?>">
+                  <?php echo $stageText; ?>
+                    </span>
               </td>
               <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                 <?php echo date('M d, Y', strtotime($document['assigned_at'])); ?>
@@ -858,229 +902,194 @@ td {
                     Assign to Operator
                   </button>
                 <?php endif; ?>
+                <?php if ($user['role'] === 'operator' && $document['current_stage'] === 'printing_document'): ?>
+                  <button onclick="openFinishPrintingModal(<?php echo $document['id']; ?>)" class="text-green-600 hover:text-green-800">
+                    Finish Printing
+                  </button>
+                <?php endif; ?>
               </td>
             </tr>
-            <?php endwhile; ?>
+                <?php
+              }
+            }
+            ?>
           </tbody>
         </table>
       </div>
-    </div>
-<?php endif; ?>
-
-<?php if ($current_tab === 'sales_agents' && $user['role'] === 'editor'): ?>
-    <!-- Sales Agents Tab (Editor only) -->
-    <div class="card mb-8">
-      <h2 class="text-2xl font-bold text-secondary mb-4">Sales Agents</h2>
-      <p class="text-gray-700 dark:text-gray-300">This section will display sales agents for editors.</p>
     </div>
 <?php endif; ?>
 
 <?php if ($user['role'] === 'client'): ?>
-    <!-- Client's Document Management -->
-    <div class="bg-white dark:bg-primary-light shadow rounded-lg p-6 animate-fade mb-6">
-      <div class="flex justify-between items-center mb-6">
-            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">My Documents</h2>
-            <button onclick="openUploadModal()" class="px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent-dark transition-colors">
-          Upload New Document
-            </button>
-          </div>
-      <div class="overflow-x-auto">
-        <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-          <thead class="bg-gray-50 dark:bg-primary">
-            <tr>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Title</th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Description</th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Sales Agent</th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Last Updated</th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
-            </tr>
-          </thead>
-          <tbody class="bg-white dark:bg-primary-light divide-y divide-gray-200 dark:divide-gray-700">
-            <?php
-                $documents = getClientDocuments($_SESSION['user_id'], $conn);
-                    if ($documents->num_rows === 0):
-                    ?>
-                    <tr>
-                        <td colspan="6" class="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
-                            No documents found. Click "Upload New Document" to get started.
-                        </td>
+        <?php if ($current_tab === 'documents'): ?>
+        <!-- Client Documents Tab -->
+        <div class="bg-white dark:bg-primary-light rounded-lg shadow p-6">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-xl font-semibold text-gray-800 dark:text-white">My Documents</h2>
+                <button onclick="openUploadModal()" class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-accent hover:bg-accent-dark focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent">
+                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                    </svg>
+                    Upload New Document
+                </button>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                    <thead class="bg-gray-50 dark:bg-primary">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Document Title</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Sales Agent</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Last Updated</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white dark:bg-primary-light divide-y divide-gray-200 dark:divide-gray-700">
+                        <?php
+                            $documents = getClientDocuments($_SESSION['user_id'], $conn);
+                                while ($document = $documents->fetch_assoc()):
+                            switch ($document['current_stage']) {
+                                        case 'pending':
+                                            $stageClass = 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200';
+                                                $stageText = 'Pending';
+                                            break;
+                              case 'sales_review':
+                                                $stageClass = 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200';
+                                                $stageText = 'Sales Review';
+                                            break;
+                                        case 'editor_polishing':
+                                                $stageClass = 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200';
+                                                $stageText = 'Editor Polishing';
+                                    break;
+                                        case 'printing_document':
+                                                $stageClass = 'bg-pink-100 text-pink-800 dark:bg-pink-900 dark:text-pink-200';
+                                                $stageText = 'Printing';
+                                    break;
+                                        case 'payment_pending':
+                                                $stageClass = 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200';
+                                                $stageText = 'Payment Pending';
+                                    break;
+                                            case 'finished':
+                                $stageClass = 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
+                                    $stageText = 'Finished';
+                                    break;
+                                            default:
+                                        $stageClass = 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200';
+                                        $stageText = 'Unknown';
+                            }
+                            ?>
+                                <tr class="hover:bg-gray-50 dark:hover:bg-primary transition-colors">
+                                        <td class="px-6 py-4 whitespace-nowrap">
+                                            <div class="text-sm font-medium text-gray-900 dark:text-white"><?php echo htmlspecialchars($document['title']); ?></div>
+                                            <?php if ($document['description']): ?>
+                                            <div class="text-sm text-gray-500 dark:text-gray-400"><?php echo htmlspecialchars($document['description']); ?></div>
+                                            <?php endif; ?>
+                      </td>
+                      <td class="px-6 py-4 whitespace-nowrap">
+                                            <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full <?php echo $stageClass; ?>">
+                                                <?php echo $stageText; ?>
+                        </span>
+                      </td>
+                      <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                            <?php echo $document['sales_agent_name'] ? htmlspecialchars($document['sales_agent_name']) : 'Not assigned'; ?>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                <?php echo date('M d, Y H:i', strtotime($document['workflow_updated_at'])); ?>
+                      </td>
+                      <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <button onclick="openDocumentDetailsModal(<?php echo $document['id']; ?>)" class="text-accent hover:text-accent-dark mr-3">
+                          View Details
+              </button>
+                                <?php if ($document['current_stage'] === 'pending'): ?>
+                                    <button onclick="deleteDocument(<?php echo $document['id']; ?>)" class="text-red-600 hover:text-red-900">
+                                    Delete
+              </button>
+                        <?php endif; ?>
+                        <?php if ($document['current_stage'] === 'payment_pending' && !$document['payment_requested']): ?>
+                            <button onclick="requestPayment(<?php echo $document['id']; ?>)" class="text-green-600 hover:text-green-900">
+                                Request Payment
+                            </button>
+                        <?php endif; ?>
+                      </td>
                     </tr>
-                    <?php else:
-                    while ($document = $documents->fetch_assoc()):
-                $stageClass = '';
-                switch ($document['current_stage']) {
-                            case 'pending':
-                                $stageClass = 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200';
-                                break;
-                  case 'sales_review':
-                                $stageClass = 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200';
-                                break;
-                            case 'editor_polishing':
-                    $stageClass = 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200';
-                    break;
-                            case 'printing_document':
-                    $stageClass = 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200';
-                    break;
-                            case 'payment_pending':
-                                $stageClass = 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200';
-                    break;
-                  case 'completed':
-                    $stageClass = 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
-                    break;
-                }
-                ?>
-                    <tr class="hover:bg-gray-50 dark:hover:bg-primary transition-colors">
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
-                            <?php echo htmlspecialchars($document['title']); ?>
-                  </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                            <?php echo htmlspecialchars($document['description']); ?>
-                  </td>
-                  <td class="px-6 py-4 whitespace-nowrap">
-                            <span class="px-2 py-1 text-xs rounded-full <?php echo $stageClass; ?>">
-                                <?php echo ucwords(str_replace('_', ' ', $document['current_stage'])); ?>
-                    </span>
-                  </td>
-                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                            <?php echo htmlspecialchars($document['sales_agent_name'] ?? 'Not assigned'); ?>
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                            <?php echo date('M d, Y H:i', strtotime($document['workflow_updated_at'])); ?>
-                  </td>
-                  <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    <button onclick="openDocumentDetailsModal(<?php echo $document['id']; ?>)" class="text-accent hover:text-accent-dark mr-3">
-                      View Details
-          </button>
-                            <?php if ($document['current_stage'] === 'pending'): ?>
-                            <button onclick="deleteDocument(<?php echo $document['id']; ?>)" class="text-red-600 hover:text-red-800">
-                                Delete
-          </button>
-                    <?php endif; ?>
-                  </td>
-                </tr>
-                <?php
-                    endwhile;
-                    endif;
-            ?>
-          </tbody>
-        </table>
-    </div>
-  </div>
+                            <?php endwhile; ?>
+                      </tbody>
+                    </table>
+            </div>
+        </div>
+        <?php endif; ?>
 
-  <!-- Upload Document Modal -->
-    <div id="uploadModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden overflow-y-auto h-full w-full z-50">
-        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white dark:bg-primary-light">
-            <div class="mt-3">
-                <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Upload New Document</h3>
-                <form id="uploadForm" class="space-y-4">
+        <?php if ($current_tab === 'upload'): ?>
+        <!-- Client Upload Document Tab -->
+        <div class="bg-white dark:bg-primary-light rounded-lg shadow p-6">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-xl font-semibold text-gray-800 dark:text-white">Upload New Document</h2>
+            </div>
+            <form id="uploadForm" class="space-y-6">
           <div>
-                        <label for="title" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Title</label>
-                        <input type="text" id="title" name="title" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-accent focus:ring-accent dark:bg-primary dark:border-gray-600 dark:text-white">
+                    <label for="title" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Document Title</label>
+                    <input type="text" id="title" name="title" required class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-primary shadow-sm focus:border-accent focus:ring-accent">
           </div>
           <div>
                         <label for="description" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Description</label>
-                        <textarea id="description" name="description" rows="3" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-accent focus:ring-accent dark:bg-primary dark:border-gray-600 dark:text-white"></textarea>
-          </div>
-          <div>
-                        <label for="document" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Document File</label>
-                        <input type="file" id="document" name="document" required class="mt-1 block w-full text-sm text-gray-500 dark:text-gray-400
-                            file:mr-4 file:py-2 file:px-4
-                            file:rounded-full file:border-0
-                            file:text-sm file:font-semibold
-                            file:bg-accent file:text-white
-                            hover:file:bg-accent-dark">
+                    <textarea id="description" name="description" rows="3" class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-primary shadow-sm focus:border-accent focus:ring-accent"></textarea>
           </div>
           <div>
                         <label for="payment_type" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Payment Type</label>
-                        <select id="payment_type" name="payment_type" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-accent focus:ring-accent dark:bg-primary dark:border-gray-600 dark:text-white">
-              <option value="full_payment">Full Payment</option>
-              <option value="down_payment">Down Payment</option>
+                    <select id="payment_type" name="payment_type" required class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-primary shadow-sm focus:border-accent focus:ring-accent">
+                        <option value="">Select payment type</option>
+                        <option value="cash">Cash</option>
+                        <option value="credit_card">Credit Card</option>
+                        <option value="bank_transfer">Bank Transfer</option>
             </select>
           </div>
-                    <div class="flex justify-end space-x-3">
-                        <button type="button" onclick="closeUploadModal()" class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-primary rounded-md">
-              Cancel
-            </button>
-                        <button type="submit" class="px-4 py-2 text-sm font-medium text-white bg-accent hover:bg-accent-dark rounded-md">
-              Upload
-            </button>
+                <div>
+                    <label for="document" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Upload Document</label>
+                    <div class="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 dark:border-gray-600 border-dashed rounded-lg hover:border-accent dark:hover:border-accent transition-colors">
+                        <div class="space-y-1 text-center">
+                            <svg class="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true">
+                                <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                            <div class="flex text-sm text-gray-600 dark:text-gray-400">
+                                <label for="document" class="relative cursor-pointer bg-white dark:bg-primary-light rounded-md font-medium text-accent hover:text-accent-dark focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-accent">
+                                    <span>Upload a file</span>
+                                    <input id="document" name="document" type="file" class="sr-only" required>
+                                </label>
+                                <p class="pl-1">or drag and drop</p>
           </div>
-        </form>
+                            <p class="text-xs text-gray-500 dark:text-gray-400">
+                                Any file type accepted
+                            </p>
       </div>
     </div>
+                </div>
+                <div class="flex justify-end">
+                    <button type="submit" class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-accent hover:bg-accent-dark focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent">
+                        Upload Document
+                    </button>
+                </div>
+            </form>
   </div>
+        <?php endif; ?>
     <?php endif; ?>
 
-<?php if ($current_tab === 'documents' && $user['role'] === 'editor'): ?>
-  <!-- Editor's Documents Tab -->
-  <div class="bg-white dark:bg-primary-light shadow rounded-lg p-6 animate-fade">
-    <div class="flex justify-between items-center mb-6">
-      <h2 class="text-xl font-semibold text-gray-900 dark:text-white">My Documents</h2>
-      <div class="flex items-center space-x-4">
-        <div class="flex items-center">
-          <span class="mr-2 text-sm text-gray-600 dark:text-gray-400">Availability:</span>
-              <label class="relative inline-flex items-center cursor-pointer">
-            <input type="checkbox" id="availabilityToggle" class="sr-only peer" <?php echo $user['is_available'] ? 'checked' : ''; ?>>
-            <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-accent/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-accent"></div>
-            <span class="ml-2 text-sm font-medium text-gray-600 dark:text-gray-400" id="availabilityStatus"><?php echo $user['is_available'] ? 'Available' : 'Not Available'; ?></span>
-              </label>
+</main>
+
+  <!-- Editor Assignment Modal -->
+  <div id="editorAssignmentModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden overflow-y-auto h-full w-full z-50">
+        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white dark:bg-primary-light">
+            <div class="mt-3">
+        <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Assign to Editor</h3>
+        <div id="editorList" class="space-y-2">
+          <!-- Editor list will be loaded here -->
         </div>
-        <div class="relative">
-          <input type="text" id="editorSearch" placeholder="Search documents..." class="px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-accent/20 dark:bg-primary dark:border-gray-700 dark:text-white">
+        <div class="mt-4 flex justify-end">
+          <button onclick="closeEditorAssignmentModal()" class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-primary rounded-md">
+              Cancel
+            </button>
           </div>
               </div>
               </div>
-    <div class="overflow-x-auto">
-      <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-        <thead class="bg-gray-50 dark:bg-primary">
-          <tr>
-            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Client</th>
-            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Title</th>
-            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
-            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Assigned By</th>
-            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Assigned Date</th>
-            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
-          </tr>
-        </thead>
-        <tbody class="bg-white dark:bg-primary-light divide-y divide-gray-200 dark:divide-gray-700">
-          <?php
-          $documents = getEditorDocuments($_SESSION['user_id'], $conn);
-          while ($document = $documents->fetch_assoc()):
-          ?>
-          <tr class="hover:bg-gray-50 dark:hover:bg-primary transition-colors">
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white"><?php echo htmlspecialchars($document['client_name']); ?></td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white"><?php echo htmlspecialchars($document['title']); ?></td>
-            <td class="px-6 py-4 whitespace-nowrap">
-              <span class="px-2 py-1 text-xs rounded-full <?php echo getStageColor($document['current_stage']); ?>">
-                <?php echo formatStage($document['current_stage']); ?>
-              </span>
-            </td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
-              <?php echo htmlspecialchars($document['sales_agent_name']); ?>
-            </td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-              <?php echo date('M d, Y', strtotime($document['assigned_at'])); ?>
-            </td>
-            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-              <button onclick="openDocumentDetailsModal(<?php echo $document['id']; ?>)" class="text-accent hover:text-accent-dark mr-3">
-                View Details
-              </button>
-              <?php if ($document['current_stage'] === 'editor_polishing'): ?>
-                <button onclick="forwardToOperator(<?php echo $document['id']; ?>)" class="text-blue-600 hover:text-blue-800">
-                  Forward to Operator
-                </button>
-              <?php endif; ?>
-            </td>
-          </tr>
-          <?php endwhile; ?>
-        </tbody>
-      </table>
   </div>
-        </div>
-<?php endif; ?>
-
-  </main>
 
   <!-- Document Details Modal -->
   <div id="documentDetailsModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden overflow-y-auto h-full w-full z-50">
@@ -1093,10 +1102,10 @@ td {
         <div class="mt-4 flex justify-end">
           <button onclick="closeDocumentDetailsModal()" class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-primary rounded-md">
             Close
-          </button>
+              </button>
+  </div>
         </div>
-      </div>
-    </div>
+              </div>
   </div>
 
   <!-- Footer -->
@@ -1105,6 +1114,187 @@ td {
       <p class="text-gray-600 dark:text-gray-300">&copy; 2025 ADOMee$. All rights reserved.</p>
         </div>
   </footer>
+
+  <!-- Operator Assignment Modal -->
+  <div id="operatorAssignmentModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+    <div class="bg-white dark:bg-primary-light rounded-lg p-6 w-full max-w-md mx-4">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="text-xl font-bold text-secondary">Assign to Operator</h3>
+        <button onclick="closeOperatorAssignmentModal()" class="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+      <div id="operatorList" class="space-y-4">
+        <div class="flex justify-center">
+          <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-accent"></div>
+        </div>
+      </div>
+      <div class="mt-6 flex justify-end">
+        <button onclick="closeOperatorAssignmentModal()" class="btn bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg">
+          Cancel
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Forward to Operator Modal -->
+  <div id="forwardToOperatorModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden overflow-y-auto h-full w-full z-50">
+    <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white dark:bg-primary-light">
+      <div class="mt-3">
+        <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Forward to Operator</h3>
+        <div id="operatorSelection" class="space-y-4">
+          <div class="text-center">
+            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-accent mx-auto"></div>
+            <p class="mt-2 text-gray-600 dark:text-gray-400">Loading available operators...</p>
+          </div>
+        </div>
+        <form id="forwardToOperatorForm" class="space-y-4 hidden">
+          <input type="hidden" id="forwardDocumentId" name="document_id">
+          <input type="hidden" id="selectedOperatorId" name="operator_id">
+          
+          <div>
+            <label for="editedDocument" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Upload Edited Document</label>
+            <input type="file" id="editedDocument" name="edited_document" required
+                   class="mt-1 block w-full text-sm text-gray-500 dark:text-gray-400
+                          file:mr-4 file:py-2 file:px-4
+                          file:rounded-md file:border-0
+                          file:text-sm file:font-semibold
+                          file:bg-accent file:text-white
+                          hover:file:bg-accent-dark">
+          </div>
+          
+          <div>
+            <label for="editorNotes" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Notes for Operator</label>
+            <textarea id="editorNotes" name="editor_notes" rows="3" 
+                      class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-accent focus:ring-accent dark:bg-primary dark:border-gray-600 dark:text-white"></textarea>
+          </div>
+          
+          <div class="flex justify-end space-x-3">
+            <button type="button" onclick="closeForwardToOperatorModal()" 
+                    class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-primary rounded-md">
+              Cancel
+            </button>
+            <button type="submit" 
+                    class="px-4 py-2 text-sm font-medium text-white bg-accent hover:bg-accent-dark rounded-md">
+              Forward
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Upload Document Modal -->
+  <div id="uploadModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden overflow-y-auto h-full w-full z-50">
+    <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white dark:bg-primary-light">
+        <div class="mt-3">
+            <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Upload New Document</h3>
+            <form id="uploadForm" class="space-y-4">
+                <div>
+                    <label for="title" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Document Title</label>
+                    <input type="text" id="title" name="title" required class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-primary shadow-sm focus:border-accent focus:ring-accent">
+                </div>
+                <div>
+                    <label for="description" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Description</label>
+                    <textarea id="description" name="description" rows="3" class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-primary shadow-sm focus:border-accent focus:ring-accent"></textarea>
+                </div>
+                <div>
+                    <label for="payment_type" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Payment Type</label>
+                    <select id="payment_type" name="payment_type" required class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-primary shadow-sm focus:border-accent focus:ring-accent">
+                        <option value="">Select payment type</option>
+                        <option value="cash">Cash</option>
+                        <option value="credit_card">Credit Card</option>
+                        <option value="bank_transfer">Bank Transfer</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="document" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Upload Document</label>
+                    <div class="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 dark:border-gray-600 border-dashed rounded-lg hover:border-accent dark:hover:border-accent transition-colors">
+                        <div class="space-y-1 text-center">
+                            <svg class="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true">
+                                <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                            <div class="flex text-sm text-gray-600 dark:text-gray-400">
+                                <label for="document" class="relative cursor-pointer bg-white dark:bg-primary-light rounded-md font-medium text-accent hover:text-accent-dark focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-accent">
+                                    <span>Upload a file</span>
+                                    <input id="document" name="document" type="file" class="sr-only" required>
+                                </label>
+                                <p class="pl-1">or drag and drop</p>
+                            </div>
+                            <p class="text-xs text-gray-500 dark:text-gray-400">
+                                Any file type accepted
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                <div class="flex justify-end space-x-3">
+                    <button type="button" onclick="closeUploadModal()" class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-primary rounded-md">
+                        Cancel
+                    </button>
+                    <button type="submit" class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-accent hover:bg-accent-dark focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent">
+                        Upload Document
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+  <!-- Finish Printing Modal -->
+  <div id="finishPrintingModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden overflow-y-auto h-full w-full z-50">
+    <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white dark:bg-primary-light">
+      <div class="mt-3">
+        <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Finish Printing</h3>
+        <form id="finishPrintingForm" class="space-y-4">
+          <input type="hidden" id="finishPrintingDocumentId" name="document_id">
+          
+          <div>
+            <label for="printingCost" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Printing Cost ($)</label>
+            <input type="number" id="printingCost" name="printing_cost" step="0.01" min="0" required
+                   class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-primary shadow-sm focus:border-accent focus:ring-accent">
+          </div>
+          
+          <div>
+            <label for="printingNotes" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Notes (Optional)</label>
+            <textarea id="printingNotes" name="notes" rows="3" 
+                      class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-accent focus:ring-accent dark:bg-primary dark:border-gray-600 dark:text-white"></textarea>
+          </div>
+          
+          <div class="flex justify-end space-x-3">
+            <button type="button" onclick="closeFinishPrintingModal()" 
+                    class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-primary rounded-md">
+              Cancel
+            </button>
+            <button type="submit" 
+                    class="px-4 py-2 text-sm font-medium text-white bg-accent hover:bg-accent-dark rounded-md">
+              Complete Printing
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Receipt Modal -->
+  <div id="receiptModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden overflow-y-auto h-full w-full z-50">
+    <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white dark:bg-primary-light">
+      <div class="mt-3">
+        <div class="flex justify-between items-center mb-4">
+          <h3 class="text-lg font-medium text-gray-900 dark:text-white">Printing Receipt</h3>
+          <button onclick="closeReceiptModal()" class="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div id="receiptContent" class="space-y-4">
+          <!-- Receipt content will be loaded here -->
+        </div>
+      </div>
+    </div>
+  </div>
 
   <script>
     // Notification function
@@ -1125,64 +1315,54 @@ td {
 
     // Document Upload Modal Functions
     function openUploadModal() {
-        const modal = document.getElementById('uploadModal');
-      modal.classList.remove('hidden');
+        document.getElementById('uploadModal').classList.remove('hidden');
     }
 
     function closeUploadModal() {
-        const modal = document.getElementById('uploadModal');
-        modal.classList.add('hidden');
+        document.getElementById('uploadModal').classList.add('hidden');
     }
 
-    // Handle document upload form submission
-    document.addEventListener('DOMContentLoaded', function() {
-        const uploadForm = document.getElementById('uploadForm');
-        if (uploadForm) {
-            uploadForm.addEventListener('submit', function(e) {
-                e.preventDefault();
-                
-                const formData = new FormData();
-                formData.append('action', 'upload_document');
-                formData.append('title', document.getElementById('title').value);
-                formData.append('description', document.getElementById('description').value);
-                formData.append('document', document.getElementById('document').files[0]);
-                formData.append('payment_type', document.getElementById('payment_type').value);
-                
-                // Show loading state
-                const submitButton = uploadForm.querySelector('button[type="submit"]');
-                const originalText = submitButton.textContent;
-                submitButton.disabled = true;
-                submitButton.textContent = 'Uploading...';
-                
-                fetch('php/document_handlers.php', {
-                    method: 'POST',
-                    body: formData
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        showNotification('Document uploaded successfully', 'success');
-                        closeUploadModal();
-                        // Reset form
-                        uploadForm.reset();
-                        // Refresh the page after a short delay
-                        setTimeout(() => {
-                            window.location.reload();
-                        }, 1000);
-                    } else {
-                        showNotification(data.message || 'Failed to upload document', 'error');
-                    }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    showNotification('An error occurred while uploading the document', 'error');
-                })
-                .finally(() => {
-                    // Reset button state
-                    submitButton.disabled = false;
-                    submitButton.textContent = originalText;
-                });
-            });
+    document.getElementById('uploadForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const formData = new FormData(this);
+        formData.append('action', 'upload_document'); // Add the action parameter
+        
+        // Log form data for debugging
+        for (let pair of formData.entries()) {
+            console.log(pair[0] + ': ' + pair[1]);
+        }
+        
+        fetch('php/document_handlers.php', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.success) {
+                showNotification('Document uploaded successfully', 'success');
+                closeUploadModal();
+                // Refresh the documents list
+                location.reload();
+            } else {
+                showNotification(data.message || 'Error uploading document', 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showNotification('Error uploading document: ' + error.message, 'error');
+        });
+    });
+
+    // Close modal when clicking outside
+    document.getElementById('uploadModal').addEventListener('click', function(e) {
+        if (e.target === this) {
+            closeUploadModal();
         }
     });
 
@@ -1216,6 +1396,15 @@ td {
                                 <p><span class="font-medium">Description:</span> ${doc.description || 'N/A'}</p>
                                 <p><span class="font-medium">Client:</span> ${doc.client_name}</p>
                                 <p><span class="font-medium">Status:</span> ${doc.current_stage.replace(/_/g, ' ').toUpperCase()}</p>
+                                <div class="mt-4">
+                                    <a href="php/download_document.php?document_id=${doc.id}" 
+                                       class="inline-flex items-center px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent-dark transition-colors">
+                                        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                        </svg>
+                                        Download Document
+                                    </a>
+                                </div>
                             </div>
                         </div>
                         <div>
@@ -1261,28 +1450,56 @@ td {
 
     // Availability toggle functionality
     function updateAvailability(isAvailable) {
+        const statusText = document.getElementById('availabilityStatus');
+        const toggle = document.getElementById('availabilityToggle');
+        
+        // Show loading state
+        statusText.textContent = 'Updating...';
+        toggle.disabled = true;
+        
         fetch('php/document_handlers.php', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
             body: `action=update_availability&is_available=${isAvailable ? 1 : 0}`
-      })
-      .then(response => response.json())
-      .then(data => {
-            const statusText = document.getElementById('availabilityStatus');
-        if (data.success) {
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.text().then(text => {
+                try {
+                    return JSON.parse(text);
+                } catch (e) {
+                    console.error('Error parsing JSON:', text);
+                    throw new Error('Invalid JSON response from server');
+                }
+            });
+        })
+        .then(data => {
+            if (data.success) {
                 statusText.textContent = isAvailable ? 'Available' : 'Not Available';
+                statusText.className = `ml-2 text-sm font-medium ${isAvailable ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`;
                 showNotification('Availability updated successfully', 'success');
             } else {
+                // If the update failed, revert the toggle state
+                toggle.checked = !isAvailable;
                 statusText.textContent = !isAvailable ? 'Available' : 'Not Available';
+                statusText.className = `ml-2 text-sm font-medium ${!isAvailable ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`;
                 showNotification(data.message || 'Failed to update availability', 'error');
-                document.getElementById('availabilityToggle').checked = !isAvailable;
-        }
-      })
-      .catch(error => {
-            showNotification('Error updating availability', 'error');
-            document.getElementById('availabilityToggle').checked = !isAvailable;
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            // If there's an error, revert the toggle state
+            toggle.checked = !isAvailable;
+            statusText.textContent = !isAvailable ? 'Available' : 'Not Available';
+            statusText.className = `ml-2 text-sm font-medium ${!isAvailable ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`;
+            showNotification('Error updating availability: ' + error.message, 'error');
+        })
+        .finally(() => {
+            toggle.disabled = false;
         });
     }
 
@@ -1324,6 +1541,560 @@ td {
             console.error('Error:', error);
             showNotification('An error occurred while accepting the client', 'error');
         });
+    }
+
+    // Editor Assignment Functions
+    let currentDocumentId = null;
+
+    function assignToEditor(documentId) {
+        currentDocumentId = documentId;
+        const modal = document.getElementById('editorAssignmentModal');
+        const editorList = document.getElementById('editorList');
+        
+        // Show loading state
+        editorList.innerHTML = '<div class="text-center"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-accent mx-auto"></div><p class="mt-2 text-gray-600 dark:text-gray-400">Loading available editors...</p></div>';
+        modal.classList.remove('hidden');
+        
+        // Fetch available editors
+        fetch('php/document_handlers.php', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: 'action=get_available_editors'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                if (data.editors.length === 0) {
+                    editorList.innerHTML = '<p class="text-center text-gray-600 dark:text-gray-400">No available editors at the moment.</p>';
+                } else {
+                    editorList.innerHTML = data.editors.map(editor => `
+                        <button onclick="confirmEditorAssignment(${editor.id})" 
+                                class="w-full p-3 text-left rounded-lg hover:bg-gray-100 dark:hover:bg-primary transition-colors">
+                            <div class="font-medium text-gray-900 dark:text-white">${editor.username}</div>
+                            <div class="text-sm text-gray-500 dark:text-gray-400">${editor.email}</div>
+                        </button>
+                    `).join('');
+                }
+            } else {
+                editorList.innerHTML = `<div class="text-red-500">${data.message || 'Failed to load editors'}</div>`;
+            }
+        })
+        .catch(error => {
+            editorList.innerHTML = '<div class="text-red-500">An error occurred while loading editors</div>';
+            console.error('Error:', error);
+        });
+    }
+
+    function confirmEditorAssignment(editorId) {
+        if (!currentDocumentId) return;
+
+        fetch('php/document_handlers.php', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: `action=assign_to_editor&document_id=${currentDocumentId}&editor_id=${editorId}`
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showNotification('Document assigned to editor successfully', 'success');
+                closeEditorAssignmentModal();
+                // Refresh the page after a short delay
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1000);
+            } else {
+                showNotification(data.message || 'Failed to assign document to editor', 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showNotification('An error occurred while assigning the document', 'error');
+        });
+    }
+
+    function closeEditorAssignmentModal() {
+        const modal = document.getElementById('editorAssignmentModal');
+        modal.classList.add('hidden');
+        currentDocumentId = null;
+    }
+
+    function forwardToOperator(documentId) {
+        currentDocumentId = documentId;
+        const modal = document.getElementById('operatorAssignmentModal');
+        const operatorList = document.getElementById('operatorList');
+        
+        // Show loading spinner
+        operatorList.innerHTML = `
+            <div class="flex justify-center">
+                <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-accent"></div>
+            </div>
+        `;
+        
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        
+        // Fetch available operators
+        fetch('php/document_handlers.php', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: 'action=get_available_operators'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                if (data.operators.length === 0) {
+                    operatorList.innerHTML = '<p class="text-center text-gray-500 dark:text-gray-400">No available operators at the moment.</p>';
+                } else {
+                    operatorList.innerHTML = data.operators.map(operator => `
+                        <div class="p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-primary cursor-pointer"
+                             onclick="confirmOperatorAssignment(${operator.id})">
+                            <div class="font-medium text-secondary">${operator.username}</div>
+                            <div class="text-sm text-gray-500 dark:text-gray-400">${operator.email}</div>
+                        </div>
+                    `).join('');
+                }
+            } else {
+                operatorList.innerHTML = '<p class="text-center text-red-500">Failed to load operators. Please try again.</p>';
+            }
+        })
+        .catch(error => {
+            operatorList.innerHTML = '<p class="text-center text-red-500">Failed to load operators. Please try again.</p>';
+        });
+    }
+
+    function confirmOperatorAssignment(operatorId) {
+        if (!currentDocumentId) return;
+        
+        fetch('php/document_handlers.php', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: `action=assign_to_operator&document_id=${currentDocumentId}&operator_id=${operatorId}`
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showNotification('Document assigned to operator successfully', 'success');
+                closeOperatorAssignmentModal();
+                // Refresh the page to update the document list
+                window.location.reload();
+            } else {
+                showNotification(data.message || 'Failed to assign document to operator', 'error');
+            }
+        })
+        .catch(error => {
+            showNotification('An error occurred while assigning the document', 'error');
+        });
+    }
+
+    function closeOperatorAssignmentModal() {
+        const modal = document.getElementById('operatorAssignmentModal');
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+        currentDocumentId = null;
+    }
+
+    // Forward to Operator Functions
+    function assignToOperator(documentId) {
+      const modal = document.getElementById('forwardToOperatorModal');
+      document.getElementById('forwardDocumentId').value = documentId;
+      modal.classList.remove('hidden');
+      
+      // Show operator selection and hide form initially
+      document.getElementById('operatorSelection').classList.remove('hidden');
+      document.getElementById('forwardToOperatorForm').classList.add('hidden');
+      
+      // Fetch available operators
+      fetch('php/document_handlers.php', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: 'action=get_available_operators'
+      })
+      .then(response => response.json())
+      .then(data => {
+        const operatorSelection = document.getElementById('operatorSelection');
+        if (data.success) {
+          if (data.operators.length === 0) {
+            operatorSelection.innerHTML = '<p class="text-center text-gray-600 dark:text-gray-400">No available operators at the moment.</p>';
+          } else {
+            operatorSelection.innerHTML = data.operators.map(operator => `
+              <button onclick="selectOperator(${operator.id}, '${operator.username}')" 
+                      class="w-full p-3 text-left rounded-lg hover:bg-gray-100 dark:hover:bg-primary transition-colors">
+                <div class="font-medium text-gray-900 dark:text-white">${operator.username}</div>
+                <div class="text-sm text-gray-500 dark:text-gray-400">${operator.email}</div>
+                <div class="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                  Current tasks: ${operator.current_tasks}
+                </div>
+              </button>
+            `).join('');
+          }
+        } else {
+          operatorSelection.innerHTML = `<p class="text-center text-red-500">${data.message || 'Failed to load operators'}</p>`;
+        }
+      })
+      .catch(error => {
+        document.getElementById('operatorSelection').innerHTML = '<p class="text-center text-red-500">Failed to load operators. Please try again.</p>';
+        console.error('Error:', error);
+      });
+    }
+
+    function selectOperator(operatorId, operatorName) {
+      document.getElementById('selectedOperatorId').value = operatorId;
+      
+      // Hide operator selection and show form
+      document.getElementById('operatorSelection').classList.add('hidden');
+      document.getElementById('forwardToOperatorForm').classList.remove('hidden');
+      
+      // Update form title to show selected operator
+      const modalTitle = document.querySelector('#forwardToOperatorModal h3');
+      modalTitle.textContent = `Forward to ${operatorName}`;
+    }
+
+    function closeForwardToOperatorModal() {
+      const modal = document.getElementById('forwardToOperatorModal');
+      modal.classList.add('hidden');
+      document.getElementById('forwardToOperatorForm').reset();
+      
+      // Reset modal state
+      document.getElementById('operatorSelection').classList.remove('hidden');
+      document.getElementById('forwardToOperatorForm').classList.add('hidden');
+      document.querySelector('#forwardToOperatorModal h3').textContent = 'Forward to Operator';
+    }
+
+    // Handle forward to operator form submission
+    document.addEventListener('DOMContentLoaded', function() {
+      const forwardForm = document.getElementById('forwardToOperatorForm');
+      if (forwardForm) {
+        forwardForm.addEventListener('submit', function(e) {
+          e.preventDefault();
+          
+          const formData = new FormData();
+          formData.append('action', 'forward_to_operator');
+          formData.append('document_id', document.getElementById('forwardDocumentId').value);
+          formData.append('operator_id', document.getElementById('selectedOperatorId').value);
+          formData.append('edited_document', document.getElementById('editedDocument').files[0]);
+          formData.append('editor_notes', document.getElementById('editorNotes').value);
+          
+          // Show loading state
+          const submitButton = forwardForm.querySelector('button[type="submit"]');
+          const originalText = submitButton.textContent;
+          submitButton.disabled = true;
+          submitButton.textContent = 'Forwarding...';
+          
+          fetch('php/document_handlers.php', {
+            method: 'POST',
+            body: formData
+          })
+          .then(response => {
+            if (!response.ok) {
+              throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.text().then(text => {
+              try {
+                return JSON.parse(text);
+              } catch (e) {
+                console.error('Response text:', text);
+                throw new Error('Invalid JSON response from server');
+              }
+            });
+          })
+          .then(data => {
+            if (data.success) {
+              showNotification('Document forwarded successfully', 'success');
+              closeForwardToOperatorModal();
+              // Refresh the page after a short delay
+              setTimeout(() => {
+                window.location.reload();
+              }, 1000);
+            } else {
+              showNotification(data.message || 'Failed to forward document', 'error');
+              submitButton.disabled = false;
+              submitButton.textContent = originalText;
+            }
+          })
+          .catch(error => {
+            console.error('Error:', error);
+            showNotification('An error occurred while forwarding the document: ' + error.message, 'error');
+            submitButton.disabled = false;
+            submitButton.textContent = originalText;
+          });
+        });
+      }
+    });
+
+    // Add file input change handler
+    document.addEventListener('DOMContentLoaded', function() {
+      const fileInput = document.getElementById('editedDocument');
+      const fileInfo = document.getElementById('fileInfo');
+      const fileName = document.getElementById('fileName');
+      
+      if (fileInput && fileInfo && fileName) {
+        fileInput.addEventListener('change', function(e) {
+          if (this.files && this.files[0]) {
+            fileName.textContent = this.files[0].name;
+            fileInfo.classList.remove('hidden');
+          } else {
+            fileInfo.classList.add('hidden');
+          }
+        });
+        
+        // Add drag and drop support
+        const dropZone = fileInput.closest('.border-dashed');
+        
+        if (dropZone) {
+          ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, preventDefaults, false);
+          });
+          
+          function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+          }
+          
+          ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, highlight, false);
+          });
+          
+          ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, unhighlight, false);
+          });
+          
+          function highlight(e) {
+            dropZone.classList.add('border-accent');
+          }
+          
+          function unhighlight(e) {
+            dropZone.classList.remove('border-accent');
+          }
+          
+          dropZone.addEventListener('drop', handleDrop, false);
+          
+          function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            
+            if (files.length) {
+              fileInput.files = files;
+              fileName.textContent = files[0].name;
+              fileInfo.classList.remove('hidden');
+            }
+          }
+        }
+      }
+    });
+
+    // Finish Printing Functions
+    function openFinishPrintingModal(documentId) {
+      const modal = document.getElementById('finishPrintingModal');
+      document.getElementById('finishPrintingDocumentId').value = documentId;
+      modal.classList.remove('hidden');
+    }
+
+    function closeFinishPrintingModal() {
+      const modal = document.getElementById('finishPrintingModal');
+      modal.classList.add('hidden');
+      document.getElementById('finishPrintingForm').reset();
+    }
+
+    // Handle finish printing form submission
+    document.addEventListener('DOMContentLoaded', function() {
+      const finishPrintingForm = document.getElementById('finishPrintingForm');
+      if (finishPrintingForm) {
+        finishPrintingForm.addEventListener('submit', function(e) {
+          e.preventDefault();
+          
+          const formData = new FormData();
+          formData.append('action', 'finish_printing');
+          formData.append('document_id', document.getElementById('finishPrintingDocumentId').value);
+          formData.append('printing_cost', document.getElementById('printingCost').value);
+          formData.append('notes', document.getElementById('printingNotes').value);
+          
+          // Show loading state
+          const submitButton = finishPrintingForm.querySelector('button[type="submit"]');
+          const originalText = submitButton.textContent;
+          submitButton.disabled = true;
+          submitButton.textContent = 'Processing...';
+          
+          fetch('php/document_handlers.php', {
+            method: 'POST',
+            body: formData
+          })
+          .then(response => response.json())
+          .then(data => {
+            if (data.success) {
+              showNotification('Printing completed successfully', 'success');
+              closeFinishPrintingModal();
+              // Show receipt modal
+              openReceiptModal(data.receipt);
+              // Refresh the page after a short delay
+              setTimeout(() => {
+                window.location.reload();
+              }, 1500);
+            } else {
+              showNotification(data.message || 'Failed to complete printing', 'error');
+              submitButton.disabled = false;
+              submitButton.textContent = originalText;
+            }
+          })
+          .catch(error => {
+            console.error('Error:', error);
+            showNotification('An error occurred while completing printing', 'error');
+            submitButton.disabled = false;
+            submitButton.textContent = originalText;
+          });
+        });
+      }
+    });
+
+    function openReceiptModal(receiptData) {
+      const modal = document.getElementById('receiptModal');
+      const content = document.getElementById('receiptContent');
+      
+      content.innerHTML = `
+        <div class="space-y-4">
+          <div class="text-center">
+            <h4 class="text-lg font-semibold text-gray-900 dark:text-white">Printing Receipt</h4>
+            <p class="text-sm text-gray-500 dark:text-gray-400">${new Date().toLocaleString()}</p>
+          </div>
+          <div class="border-t border-b border-gray-200 dark:border-gray-700 py-4">
+            <p><span class="font-medium">Document:</span> ${receiptData.document_title}</p>
+            <p><span class="font-medium">Cost:</span> $${receiptData.cost}</p>
+            <p><span class="font-medium">Operator:</span> ${receiptData.operator_name}</p>
+            ${receiptData.notes ? `<p><span class="font-medium">Notes:</span> ${receiptData.notes}</p>` : ''}
+          </div>
+          <div class="text-center">
+            <p class="text-sm text-gray-500 dark:text-gray-400">Thank you for your business!</p>
+          </div>
+        </div>
+      `;
+      
+      modal.classList.remove('hidden');
+    }
+
+    function closeReceiptModal() {
+      const modal = document.getElementById('receiptModal');
+      modal.classList.add('hidden');
+      window.location.reload();
+    }
+
+    // Request Payment Function (Sales Agent)
+    function requestPayment(documentId) {
+      if (!confirm('Are you sure you want to request payment for this document?')) {
+        return;
+      }
+      fetch('php/document_handlers.php', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: `action=request_payment&document_id=${documentId}`
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          showNotification('Payment requested successfully', 'success');
+          // Disable the request payment button
+          const requestBtn = document.getElementById(`requestPaymentBtn_${documentId}`);
+          if (requestBtn) {
+            requestBtn.disabled = true;
+            requestBtn.textContent = 'Payment Requested';
+            requestBtn.classList.add('opacity-50', 'cursor-not-allowed');
+          }
+          setTimeout(() => {
+            window.location.reload();
+          }, 1000);
+        } else {
+          showNotification(data.message || 'Failed to request payment', 'error');
+        }
+      })
+      .catch(error => {
+        showNotification('An error occurred while requesting payment', 'error');
+      });
+    }
+
+    // Client: View Receipt and Agree to Pay
+    function openClientReceiptModal(documentId) {
+      // Fetch receipt details from backend
+      fetch('php/document_handlers.php', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: `action=get_receipt&document_id=${documentId}`
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          const modal = document.getElementById('clientReceiptModal');
+          const content = document.getElementById('clientReceiptContent');
+          content.innerHTML = `
+            <div class="space-y-4">
+              <div class="text-center">
+                <h4 class="text-lg font-semibold text-gray-900 dark:text-white">Payment Receipt</h4>
+                <p class="text-sm text-gray-500 dark:text-gray-400">${new Date().toLocaleString()}</p>
+              </div>
+              <div class="border-t border-b border-gray-200 dark:border-gray-700 py-4">
+                <p><span class="font-medium">Document:</span> ${data.receipt.document_title}</p>
+                <p><span class="font-medium">Cost:</span> $${data.receipt.cost}</p>
+                <p><span class="font-medium">Operator:</span> ${data.receipt.operator_name}</p>
+                ${data.receipt.notes ? `<p><span class="font-medium">Notes:</span> ${data.receipt.notes}</p>` : ''}
+              </div>
+              <div class="text-center">
+                <button onclick="agreeAndPay(${documentId})" 
+                        class="px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-md">
+                  Agree and Pay
+                </button>
+              </div>
+            </div>
+          `;
+          modal.classList.remove('hidden');
+        } else {
+          showNotification(data.message || 'Failed to load receipt', 'error');
+        }
+      })
+      .catch(error => {
+        showNotification('An error occurred while loading the receipt', 'error');
+      });
+    }
+
+    function closeClientReceiptModal() {
+      const modal = document.getElementById('clientReceiptModal');
+      modal.classList.add('hidden');
+    }
+
+    function agreeAndPay(documentId) {
+      if (!confirm('Do you agree to pay and complete the transaction?')) return;
+      fetch('php/document_handlers.php', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: `action=agree_and_pay&document_id=${documentId}`
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          showNotification('Payment completed and document transferred!', 'success');
+          closeClientReceiptModal();
+          setTimeout(() => {
+            window.location.reload();
+          }, 1000);
+        } else {
+          showNotification(data.message || 'Failed to complete payment', 'error');
+        }
+      })
+      .catch(error => {
+        showNotification('An error occurred while completing payment', 'error');
+      });
     }
   </script>
 </body>

@@ -53,6 +53,7 @@ CREATE TABLE document_workflow (
     editor_notes TEXT,
     operator_notes TEXT,
     cost_receipt_path VARCHAR(255),
+    payment_requested BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE,

@@ -36,9 +36,46 @@ switch ($action) {
                 $document['workflow_history'][] = $entry;
             }
             
+            // Get payment information
+            $payment_stmt = $conn->prepare("
+                SELECT p.*
+                FROM payments p
+                WHERE p.document_id = ?
+                ORDER BY p.created_at DESC
+            ");
+            $payment_stmt->bind_param("i", $document_id);
+            $payment_stmt->execute();
+            $payments = $payment_stmt->get_result();
+            $document['payments'] = [];
+            while ($payment = $payments->fetch_assoc()) {
+                $document['payments'][] = $payment;
+            }
+            
             $response = [
                 'success' => true,
                 'document' => $document
+            ];
+            break;
+            
+        case 'get_available_editors':
+            if ($_SESSION['role'] !== 'sales') {
+                throw new Exception('Only sales agents can view available editors');
+            }
+            
+            $stmt = $conn->prepare("
+                SELECT id, username, email 
+                FROM users 
+                WHERE role = 'editor' 
+                AND is_available = 1 
+                AND is_active = 1
+            ");
+            $stmt->execute();
+            $result = $stmt->get_result();
+            $editors = $result->fetch_all(MYSQLI_ASSOC);
+            
+            $response = [
+                'success' => true,
+                'editors' => $editors
             ];
             break;
             
@@ -169,30 +206,51 @@ switch ($action) {
                 throw new Exception('Only clients can upload documents');
             }
             
-            if (!isset($_FILES['document']) || !isset($_POST['title']) || !isset($_POST['payment_type'])) {
-                throw new Exception('Missing required fields');
-        }
-        
-        $result = uploadDocument(
-            $_SESSION['user_id'],
-            $_POST['title'],
-            $_POST['description'] ?? '',
-            $_FILES['document'],
+            // Validate required fields
+            if (!isset($_FILES['document']) || empty($_FILES['document']['tmp_name'])) {
+                throw new Exception('No file was uploaded');
+            }
+            
+            if (!isset($_POST['title']) || empty($_POST['title'])) {
+                throw new Exception('Document title is required');
+            }
+            
+            if (!isset($_POST['payment_type']) || empty($_POST['payment_type'])) {
+                throw new Exception('Payment type is required');
+            }
+            
+            // Validate file size (max 10MB)
+            if ($_FILES['document']['size'] > 10 * 1024 * 1024) {
+                throw new Exception('File size exceeds maximum limit of 10MB');
+            }
+            
+            // Validate file type
+            $allowed_types = ['pdf', 'doc', 'docx', 'txt', 'rtf'];
+            $file_extension = strtolower(pathinfo($_FILES['document']['name'], PATHINFO_EXTENSION));
+            if (!in_array($file_extension, $allowed_types)) {
+                throw new Exception('Invalid file type. Allowed types: ' . implode(', ', $allowed_types));
+            }
+
+            $result = uploadDocument(
+                $_SESSION['user_id'],
+                $_POST['title'],
+                $_POST['description'] ?? '',
+                $_FILES['document'],
                 $conn,
                 $_POST['payment_type']
-        );
-        
-        if ($result['success']) {
-            addDocumentNotification(
-                $result['document_id'],
-                $_SESSION['user_id'],
-                'Document uploaded successfully',
-                $conn
             );
-        }
-        
-        $response = $result;
-        break;
+
+            if ($result['success']) {
+                addDocumentNotification(
+                    $result['document_id'],
+                    $_SESSION['user_id'],
+                    'Document uploaded successfully',
+                    $conn
+                );
+            }
+
+            $response = $result;
+            break;
         
     case 'assign_to_sales':
         if ($_SESSION['role'] !== 'sales') {
@@ -220,55 +278,77 @@ switch ($action) {
         
     case 'assign_to_editor':
             if ($_SESSION['role'] !== 'sales') {
-                echo json_encode(['success' => false, 'message' => 'Only sales agents can assign documents to editors']);
-                exit;
+            throw new Exception('Only sales agents can assign documents to editors');
         }
         
             if (!isset($_POST['document_id']) || !isset($_POST['editor_id'])) {
-                echo json_encode(['success' => false, 'message' => 'Missing required parameters']);
-                exit;
+            throw new Exception('Document ID and Editor ID are required');
         }
         
-            $document_id = $_POST['document_id'];
-            $editor_id = $_POST['editor_id'];
+        $document_id = intval($_POST['document_id']);
+        $editor_id = intval($_POST['editor_id']);
 
-            // Check if editor is available
-            $stmt = $conn->prepare("SELECT is_available FROM users WHERE id = ? AND role = 'editor'");
-            $stmt->bind_param("i", $editor_id);
-            $stmt->execute();
-            $result = $stmt->get_result();
-            $editor = $result->fetch_assoc();
+        // Start transaction
+        $conn->begin_transaction();
         
-            if (!$editor || !$editor['is_available']) {
-                echo json_encode(['success' => false, 'message' => 'Selected editor is not available']);
-                exit;
+        try {
+            // Verify the document is assigned to this sales agent
+            $check_stmt = $conn->prepare("
+                SELECT d.id, d.title, d.description, w.current_stage 
+                FROM documents d
+                JOIN document_workflow w ON d.id = w.document_id
+                JOIN document_assignments da ON d.id = da.document_id
+                WHERE d.id = ? 
+                AND da.sales_agent_id = ?
+                AND w.current_stage = 'sales_review'
+            ");
+            $check_stmt->bind_param("ii", $document_id, $_SESSION['user_id']);
+            $check_stmt->execute();
+            $result = $check_stmt->get_result();
+            
+            if ($result->num_rows === 0) {
+                throw new Exception('Document not found or not in the correct stage');
             }
 
+            $document = $result->fetch_assoc();
+
             // Update document workflow
-            $stmt = $conn->prepare("UPDATE document_workflow SET current_stage = 'editor_polishing', editor_id = ?, updated_at = NOW() WHERE document_id = ?");
-            $stmt->bind_param("ii", $editor_id, $document_id);
+            $update_stmt = $conn->prepare("
+                UPDATE document_workflow 
+                SET current_stage = 'editor_polishing',
+                    editor_id = ?,
+                    editor_notes = CONCAT('Document forwarded to editor on ', NOW(), '\nClient Description: ', ?)
+                WHERE document_id = ?
+            ");
+            $update_stmt->bind_param("isi", $editor_id, $document['description'], $document_id);
             
-            if ($stmt->execute()) {
-                // Notify client
-                $stmt = $conn->prepare("SELECT d.title, c.user_id as client_id FROM documents d JOIN users c ON d.client_id = c.id WHERE d.id = ?");
-                $stmt->bind_param("i", $document_id);
-                $stmt->execute();
-                $result = $stmt->get_result();
-                $document = $result->fetch_assoc();
-                
-                if ($document) {
-                    createNotification(
-                        $document['client_id'],
-                        'Your document "' . $document['title'] . '" has been assigned to an editor for polishing.',
-                        'document_assigned',
-                        $document_id,
+            if (!$update_stmt->execute()) {
+                throw new Exception('Failed to update document workflow');
+            }
+
+            // Add workflow history
+            addWorkflowHistory(
+                $document_id,
+                'editor_polishing',
+                'printing_document',
+                $_SESSION['user_id'],
+                'Document forwarded to operator by editor',
                 $conn
             );
-        }
-        
-                echo json_encode(['success' => true]);
-            } else {
-                echo json_encode(['success' => false, 'message' => 'Failed to assign document to editor']);
+
+            // Add notification for editor
+            addDocumentNotification(
+                        $document_id,
+                $editor_id,
+                "New document assigned to you: " . $document['title'],
+                $conn
+            );
+            
+            $conn->commit();
+            $response = ['success' => true, 'message' => 'Document assigned to editor successfully'];
+        } catch (Exception $e) {
+            $conn->rollback();
+            throw $e;
             }
         break;
         
@@ -525,34 +605,57 @@ switch ($action) {
                 
         case 'request_payment':
             if ($_SESSION['role'] !== 'sales') {
-                throw new Exception('Only sales agents can request payment');
+                throw new Exception('Only sales agents can request payments');
             }
             
             if (!isset($_POST['document_id'])) {
                 throw new Exception('Document ID is required');
             }
             
-            // Update payment agreement status
-            $stmt = $conn->prepare("
-                UPDATE payment_agreements 
-                SET status = 'pending',
-                    sales_accepted = 1
+            $document_id = intval($_POST['document_id']);
+            
+            // Verify the document is assigned to this sales agent
+            $check_stmt = $conn->prepare("
+                SELECT d.id, d.title, d.description, w.current_stage 
+                FROM documents d
+                JOIN document_workflow w ON d.id = w.document_id
+                JOIN document_assignments da ON d.id = da.document_id
+                WHERE d.id = ? 
+                AND da.sales_agent_id = ?
+                AND w.current_stage = 'sales_review'
+            ");
+            $check_stmt->bind_param("ii", $document_id, $_SESSION['user_id']);
+            $check_stmt->execute();
+            
+            if ($check_stmt->get_result()->num_rows === 0) {
+                throw new Exception('Document not found or not in the correct stage');
+            }
+            
+            // Update document workflow
+            $update_stmt = $conn->prepare("
+                UPDATE document_workflow 
+                SET current_stage = 'payment_pending',
+                    payment_requested = TRUE,
+                    sales_notes = CONCAT('Payment requested on ', NOW())
                 WHERE document_id = ?
             ");
-            $stmt->bind_param("i", $_POST['document_id']);
+            $update_stmt->bind_param("i", $document_id);
             
-            if ($stmt->execute()) {
-                $document = getDocumentDetails($_POST['document_id'], $conn);
-                addDocumentNotification(
-                    $_POST['document_id'],
-                    $document['client_id'],
-                    'Payment has been requested for your document. Please review and accept.',
-                    $conn
-                );
-                $response = ['success' => true];
-            } else {
-                $response = ['success' => false, 'message' => 'Failed to request payment'];
+            if (!$update_stmt->execute()) {
+                throw new Exception('Failed to update document workflow');
             }
+            
+            // Add workflow history
+            addWorkflowHistory(
+                $document_id,
+                'sales_review',
+                'payment_pending',
+                $_SESSION['user_id'],
+                "Payment requested by sales agent",
+                $conn
+            );
+            
+            $response = ['success' => true];
             break;
 
         case 'accept_payment':
@@ -614,78 +717,157 @@ switch ($action) {
         case 'update_availability':
             // Check if user is editor or operator
             if ($_SESSION['role'] !== 'editor' && $_SESSION['role'] !== 'operator') {
-                echo json_encode(['success' => false, 'message' => 'Unauthorized access']);
-                exit;
+                $response = ['success' => false, 'message' => 'Unauthorized access'];
+                break;
             }
 
-            // Get availability status
-            $is_available = isset($_POST['is_available']) ? (bool)$_POST['is_available'] : false;
+            // Validate input
+            if (!isset($_POST['is_available']) || !in_array($_POST['is_available'], ['0', '1'])) {
+                $response = ['success' => false, 'message' => 'Invalid availability value'];
+                break;
+            }
 
-            // Update user's availability
-            $stmt = $conn->prepare("UPDATE users SET is_available = ? WHERE id = ? AND (role = 'editor' OR role = 'operator')");
-            $stmt->bind_param("ii", $is_available, $_SESSION['user_id']);
-            
-            if ($stmt->execute()) {
-                echo json_encode(['success' => true]);
-            } else {
-                echo json_encode(['success' => false, 'message' => 'Failed to update availability']);
+            $is_available = (int)$_POST['is_available'];
+            $user_id = $_SESSION['user_id'];
+
+            try {
+                // Update the user's availability
+                $stmt = $conn->prepare("UPDATE users SET is_available = ? WHERE id = ?");
+                $stmt->bind_param("ii", $is_available, $user_id);
+
+                if ($stmt->execute()) {
+                    // Try to log the activity, but don't fail if the table doesn't exist yet
+                    try {
+                        $action = $is_available ? 'set as available' : 'set as unavailable';
+                        $stmt = $conn->prepare("INSERT INTO user_activity_log (user_id, action, details) VALUES (?, 'availability_update', ?)");
+                        $stmt->bind_param("is", $user_id, $action);
+                        $stmt->execute();
+                    } catch (Exception $e) {
+                        // Silently continue if logging fails
+                    }
+
+                    $response = [
+                        'success' => true, 
+                        'message' => 'Availability updated successfully',
+                        'is_available' => $is_available
+                    ];
+                } else {
+                    throw new Exception('Failed to update availability: ' . $conn->error);
+                }
+            } catch (Exception $e) {
+                $response = [
+                    'success' => false, 
+                    'message' => $e->getMessage()
+                ];
             }
             break;
             
         case 'forward_to_operator':
-            if ($_SESSION['role'] !== 'editor') {
-                throw new Exception('Only editors can forward documents to operators');
+            if (!isset($_POST['document_id']) || !isset($_FILES['edited_document'])) {
+                $response = ['success' => false, 'message' => 'Missing required fields'];
+                break;
             }
 
-            if (!isset($_POST['document_id'])) {
-                throw new Exception('Document ID is required');
-            }
+            $document_id = $_POST['document_id'];
+            $editor_notes = $_POST['editor_notes'] ?? '';
+            $edited_document = $_FILES['edited_document'];
 
-            $document_id = intval($_POST['document_id']);
-
-            // Verify the document is assigned to this editor
-            $check_stmt = $conn->prepare("
-                SELECT 1 FROM document_workflow 
-                WHERE document_id = ? 
-                AND editor_id = ? 
-                AND current_stage = 'editor_polishing'
+            // Get document details with user information
+            $stmt = $conn->prepare("
+                SELECT d.*, w.current_stage, w.editor_id, 
+                       e.username as editor_name, o.username as operator_name
+                FROM documents d 
+                JOIN document_workflow w ON d.id = w.document_id 
+                JOIN users e ON w.editor_id = e.id
+                LEFT JOIN users o ON w.operator_id = o.id
+                WHERE d.id = ? AND w.editor_id = ?
             ");
-            $check_stmt->bind_param("ii", $document_id, $_SESSION['user_id']);
-            $check_stmt->execute();
-            
-            if ($check_stmt->get_result()->num_rows === 0) {
-                throw new Exception('Document is not assigned to you or is not in the correct stage');
+            $stmt->bind_param("ii", $document_id, $_SESSION['user_id']);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            $document = $result->fetch_assoc();
+
+            if (!$document) {
+                $response = ['success' => false, 'message' => 'Document not found or not assigned to you'];
+                break;
             }
 
-            // Get current stage
-            $stage_stmt = $conn->prepare("SELECT current_stage FROM document_workflow WHERE document_id = ?");
-            $stage_stmt->bind_param("i", $document_id);
-            $stage_stmt->execute();
-            $current_stage = $stage_stmt->get_result()->fetch_assoc()['current_stage'];
+            if ($document['current_stage'] !== 'editor_polishing') {
+                $response = ['success' => false, 'message' => 'Document is not in the correct stage for forwarding'];
+                break;
+            }
 
-            // Update workflow
-            $update_stmt = $conn->prepare("
-                UPDATE document_workflow 
-                SET current_stage = 'printing_document',
-                    editor_notes = CONCAT(COALESCE(editor_notes, ''), '\nDocument forwarded to operator on ', NOW())
-                WHERE document_id = ?
+            // Get available operators with their current task count
+            $stmt = $conn->prepare("
+                SELECT u.*, 
+                    (SELECT COUNT(*) FROM document_workflow w WHERE w.operator_id = u.id AND w.current_stage = 'printing_document') as current_tasks
+                FROM users u 
+                WHERE u.role = 'operator' AND u.is_available = 1
+                HAVING current_tasks < 3
+                ORDER BY current_tasks ASC
+                LIMIT 1
             ");
-            $update_stmt->bind_param("i", $document_id);
-            
-            if ($update_stmt->execute()) {
-                // Add workflow history
+            $stmt->execute();
+            $result = $stmt->get_result();
+            $operator = $result->fetch_assoc();
+
+            if (!$operator) {
+                $response = ['success' => false, 'message' => 'No available operators at the moment'];
+                break;
+            }
+
+            // Start transaction
+            $conn->begin_transaction();
+
+            try {
+                // Upload the edited document
+                $upload_dir = '../uploads/edited_documents/';
+                if (!file_exists($upload_dir)) {
+                    mkdir($upload_dir, 0777, true);
+                }
+
+                $file_extension = pathinfo($edited_document['name'], PATHINFO_EXTENSION);
+                $new_filename = 'edited_' . $document_id . '_' . time() . '.' . $file_extension;
+                $file_path = $upload_dir . $new_filename;
+
+                if (!move_uploaded_file($edited_document['tmp_name'], $file_path)) {
+                    throw new Exception('Failed to upload edited document');
+                }
+
+                // Update document file path
+                $stmt = $conn->prepare("UPDATE documents SET file_path = ? WHERE id = ?");
+                $stmt->bind_param("si", $file_path, $document_id);
+                $stmt->execute();
+
+                // Update workflow with detailed notes
+                $stmt = $conn->prepare("
+                    UPDATE document_workflow 
+                    SET current_stage = 'printing_document',
+                        operator_id = ?,
+                        editor_notes = CONCAT('Document forwarded to operator on ', NOW(), 
+                                            '\nEditor Notes: ', ?,
+                                            '\nForwarded by: ', ?,
+                                            '\nPrevious Editor: ', ?)
+                    WHERE document_id = ?
+                ");
+                $stmt->bind_param("isssi", $operator['id'], $editor_notes, $document['editor_name'], $document['editor_name'], $document_id);
+                $stmt->execute();
+
+                // Add workflow history with detailed information
                 addWorkflowHistory(
                     $document_id,
-                    $current_stage,
+                    'editor_polishing',
                     'printing_document',
                     $_SESSION['user_id'],
-                    "Document forwarded to operator by editor",
+                    "Document forwarded to operator {$operator['username']} by editor {$document['editor_name']}. Editor Notes: {$editor_notes}",
                     $conn
                 );
-                
-                $response = ['success' => true];
-            } else {
-                throw new Exception('Failed to forward document to operator');
+
+                $conn->commit();
+                $response = ['success' => true, 'message' => 'Document forwarded successfully'];
+            } catch (Exception $e) {
+                $conn->rollback();
+                $response = ['success' => false, 'message' => 'Error: ' . $e->getMessage()];
             }
             break;
             
@@ -750,6 +932,42 @@ switch ($action) {
                 $conn->rollback();
                 throw new Exception('Failed to delete document: ' . $e->getMessage());
             }
+            break;
+            
+        case 'get_available_operators':
+            if ($_SESSION['role'] !== 'editor') {
+                throw new Exception('Only editors can view available operators');
+            }
+            
+            $stmt = $conn->prepare("
+                SELECT id, username, email 
+                FROM users 
+                WHERE role = 'operator' 
+                AND is_available = 1 
+                AND is_active = 1
+            ");
+            $stmt->execute();
+            $result = $stmt->get_result();
+            $operators = $result->fetch_all(MYSQLI_ASSOC);
+            
+            $response = [
+                'success' => true,
+                'operators' => $operators
+            ];
+            break;
+            
+        case 'finish_printing':
+            if (!isset($_POST['document_id']) || !isset($_POST['printing_cost'])) {
+                $response = ['success' => false, 'message' => 'Missing required parameters'];
+                break;
+            }
+
+            $document_id = intval($_POST['document_id']);
+            $printing_cost = floatval($_POST['printing_cost']);
+            $printing_notes = $_POST['printing_notes'] ?? '';
+
+            $result = finishPrinting($document_id, $_SESSION['user_id'], $printing_cost, $printing_notes, $conn);
+            $response = $result;
             break;
             
         default:
