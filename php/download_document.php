@@ -40,17 +40,17 @@ $can_download = false;
 $user_id = $_SESSION['user_id'];
 $user_role = $_SESSION['role'];
 
-// Admin can download any document
-if ($user_role === 'admin') {
+// Clients can download finished documents
+if ($user_role === 'client' && $document['current_stage'] === 'finished') {
+    $can_download = $document['client_id'] === $user_id;
+}
+// Editors can download documents assigned to them
+else if ($user_role === 'editor' && $document['editor_id'] === $user_id) {
     $can_download = true;
-} else {
-    // Check if user is involved in the document workflow
-    $can_download = (
-        $document['client_id'] === $user_id || // Client
-        $document['sales_agent_id'] === $user_id || // Sales agent
-        $document['editor_id'] === $user_id || // Editor
-        $document['operator_id'] === $user_id // Operator
-    );
+}
+// Operators can download documents assigned to them
+else if ($user_role === 'operator' && $document['operator_id'] === $user_id) {
+    $can_download = true;
 }
 
 if (!$can_download) {

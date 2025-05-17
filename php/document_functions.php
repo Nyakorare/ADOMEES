@@ -58,8 +58,10 @@ function uploadDocument($client_id, $title, $description, $file, $conn, $payment
         $workflow_stmt = $conn->prepare("
             INSERT INTO document_workflow (
                 document_id,
-                current_stage
-            ) VALUES (?, 'pending')
+                current_stage,
+                payment_requested,
+                payment_status
+            ) VALUES (?, 'pending', FALSE, 'pending')
         ");
         $workflow_stmt->bind_param("i", $document_id);
         
@@ -114,13 +116,29 @@ function getAvailableDocuments($conn) {
 // Function to get documents assigned to a sales agent
 function getSalesAgentDocuments($sales_agent_id, $conn) {
     $stmt = $conn->prepare("
-        SELECT d.*, u.username as client_name, da.assigned_at,
-               w.current_stage, w.sales_notes
-        FROM documents d 
-        JOIN users u ON d.client_id = u.id 
-        JOIN document_assignments da ON d.id = da.document_id
-        JOIN document_workflow w ON d.id = w.document_id
-        WHERE da.sales_agent_id = ?
+        SELECT 
+            d.id,
+            d.title,
+            d.description,
+            d.file_path,
+            d.created_at,
+            c.username as client_name,
+            w.current_stage,
+            w.editor_id,
+            w.operator_id,
+            w.payment_requested,
+            w.payment_status,
+            w.updated_at as workflow_updated_at,
+            e.username as editor_name,
+            o.username as operator_name
+        FROM documents d
+        JOIN users c ON d.client_id = c.id
+        LEFT JOIN document_workflow w ON d.id = w.document_id
+        LEFT JOIN users e ON w.editor_id = e.id
+        LEFT JOIN users o ON w.operator_id = o.id
+        WHERE w.sales_agent_id = ? 
+        AND w.current_stage IN ('sales_review', 'editor_polishing', 'printing_document', 'payment_pending', 'payment_accepted')
+        ORDER BY w.updated_at DESC
     ");
     $stmt->bind_param("i", $sales_agent_id);
     $stmt->execute();
@@ -456,6 +474,8 @@ function getDocumentDetails($document_id) {
                w.editor_notes,
                w.operator_notes,
                w.cost_receipt_path,
+               w.payment_requested,
+               w.payment_status,
                w.updated_at as workflow_updated_at,
                da.sales_agent_id,
                c.username as client_name,
@@ -529,6 +549,7 @@ function getClientDocuments($client_id, $conn) {
                w.operator_notes,
                w.updated_at as workflow_updated_at,
                w.payment_requested,
+               w.payment_status,
                w.cost_receipt_path
         FROM documents d
         LEFT JOIN document_assignments da ON d.id = da.document_id
@@ -697,11 +718,12 @@ function finishPrinting($document_id, $operator_id, $cost, $notes, $conn) {
     try {
         $conn->begin_transaction();
 
-        // Get document details
+        // Get document details with operator information
         $stmt = $conn->prepare("
-            SELECT d.title, u.username as operator_name 
+            SELECT d.title, u.username as operator_name, w.current_stage
             FROM documents d 
             JOIN users u ON u.id = ? 
+            JOIN document_workflow w ON d.id = w.document_id
             WHERE d.id = ?
         ");
         $stmt->bind_param("ii", $operator_id, $document_id);
@@ -734,26 +756,28 @@ function finishPrinting($document_id, $operator_id, $cost, $notes, $conn) {
         // Save receipt file
         file_put_contents($receipt_path, $receipt_content);
 
-        // Update document workflow and remove operator assignment
+        // Update document workflow with detailed notes
         $stmt = $conn->prepare("
             UPDATE document_workflow 
             SET current_stage = 'payment_pending',
-                operator_notes = ?,
+                operator_notes = CONCAT('Printing completed on ', NOW(), 
+                                      '\nOperator Notes: ', ?,
+                                      '\nCost: $', ?,
+                                      '\nCompleted by: ', ?),
                 cost_receipt_path = ?,
-                operator_id = NULL,
                 updated_at = CURRENT_TIMESTAMP
             WHERE document_id = ?
         ");
-        $stmt->bind_param("ssi", $notes, $receipt_path, $document_id);
+        $stmt->bind_param("sdssi", $notes, $cost, $document['operator_name'], $receipt_path, $document_id);
         $stmt->execute();
 
-        // Add workflow history
+        // Add workflow history with detailed information
         addWorkflowHistory(
             $document_id,
-            'printing_document',
+            $document['current_stage'],
             'payment_pending',
             $operator_id,
-            "Printing completed. Cost: $" . number_format($cost, 2),
+            "Printing completed by operator {$document['operator_name']}. Cost: $" . number_format($cost, 2) . ". Notes: {$notes}",
             $conn
         );
 
@@ -772,7 +796,7 @@ function finishPrinting($document_id, $operator_id, $cost, $notes, $conn) {
             addDocumentNotification(
                 $document_id,
                 $workflow['sales_agent_id'],
-                "Printing completed for document: " . $document['title'],
+                "Printing completed for document: " . $document['title'] . " by " . $document['operator_name'],
                 $conn
             );
         }

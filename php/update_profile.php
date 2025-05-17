@@ -1,6 +1,9 @@
 <?php
 session_start();
-require_once 'config.php';
+include './db.php';
+
+// Set content type to JSON
+header('Content-Type: application/json');
 
 // Check if user is logged in
 if (!isset($_SESSION['user_id'])) {
@@ -58,7 +61,8 @@ try {
         $response['message'] = 'Failed to update profile';
     }
 } catch (Exception $e) {
-    $response['message'] = 'An error occurred while updating your profile';
+    $response['message'] = 'An error occurred while updating your profile: ' . $e->getMessage();
 }
 
-echo json_encode($response); 
+echo json_encode($response);
+exit; 

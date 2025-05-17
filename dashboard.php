@@ -624,29 +624,36 @@ td {
                 switch ($document['current_stage']) {
                   case 'sales_review':
                     $stageClass = 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200';
-                  $stageText = 'Sales Agent Review';
+                    $stageText = 'Sales Agent Review';
                     break;
                 case 'editor_polishing':
                     $stageClass = 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200';
-                  $stageText = 'Editor Polishing';
+                    $stageText = 'Editor Polishing';
                     break;
                 case 'printing_document':
                     $stageClass = 'bg-pink-100 text-pink-800 dark:bg-pink-900 dark:text-pink-200';
-                  $stageText = 'Printing Document';
+                    $stageText = 'Printing';
                     break;
                 case 'payment_pending':
                   $stageClass = 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200';
                   $stageText = 'Payment Pending';
                   break;
-                case 'finished':
+                case 'payment_accepted':
                     $stageClass = 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
-                  $stageText = 'Finished';
+                    $stageText = 'Payment Accepted';
                     break;
+                case 'transaction_finished':
+                    $stageClass = 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
+                    $stageText = 'Transaction Finished';
+                    break;
+                default:
+                    $stageClass = 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200';
+                    $stageText = ucfirst(str_replace('_', ' ', $document['current_stage']));
                 }
                 ?>
                 <tr>
                   <td class="px-6 py-4 whitespace-nowrap">
-                <div class="text-sm font-medium text-gray-900 dark:text-white"><?php echo htmlspecialchars($document['client_name']); ?></div>
+                <div class="text-sm font-medium text-gray-900 dark:text-white"><?php echo htmlspecialchars($document['title']); ?></div>
                   </td>
                   <td class="px-6 py-4 whitespace-nowrap">
                 <div class="text-sm text-gray-900 dark:text-white"><?php echo htmlspecialchars($document['title']); ?></div>
@@ -658,7 +665,7 @@ td {
                     </span>
                   </td>
                   <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                    <?php echo date('M d, Y H:i', strtotime($document['updated_at'])); ?>
+                    <?php echo date('M d, Y H:i', strtotime($document['workflow_updated_at'])); ?>
                   </td>
                   <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     <button onclick="openDocumentDetailsModal(<?php echo $document['id']; ?>)" class="text-accent hover:text-accent-dark mr-3">
@@ -670,17 +677,29 @@ td {
                     </button>
                 <?php endif; ?>
                 <?php if ($document['current_stage'] === 'payment_pending'): ?>
-                  <button onclick="requestPayment(<?php echo $document['id']; ?>)" 
-                          class="text-blue-600 hover:text-blue-800 mr-3"
-                          id="requestPaymentBtn_<?php echo $document['id']; ?>"
-                          <?php echo isset($document['payment_requested']) && $document['payment_requested'] ? 'disabled' : ''; ?>>
-                    <?php echo isset($document['payment_requested']) && $document['payment_requested'] ? 'Payment Requested' : 'Request Payment'; ?>
-                  </button>
+                  <?php if (!$document['payment_requested']): ?>
+                    <button onclick="requestPayment(<?php echo $document['id']; ?>)" 
+                            class="text-blue-600 hover:text-blue-800 mr-3"
+                            id="requestPaymentBtn_<?php echo $document['id']; ?>">
+                      Request Payment
+                    </button>
+                  <?php else: ?>
+                    <button disabled 
+                            class="text-gray-400 cursor-not-allowed mr-3"
+                            id="requestPaymentBtn_<?php echo $document['id']; ?>">
+                      Payment Requested
+                    </button>
+                  <?php endif; ?>
                 <?php endif; ?>
                 <?php if ($document['current_stage'] === 'payment_pending' && isset($document['payment_status']) && $document['payment_status'] === 'accepted'): ?>
                   <button onclick="markAsFinished(<?php echo $document['id']; ?>)" class="text-green-600 hover:text-green-800">
                     Mark as Finished
                   </button>
+                <?php endif; ?>
+                <?php if ($document['current_stage'] === 'finished'): ?>
+                    <a href="php/download_document.php?document_id=<?php echo $document['id']; ?>" class="text-blue-600 hover:text-blue-800">
+                        Download Document
+                    </a>
                 <?php endif; ?>
                   </td>
                 </tr>
@@ -1004,10 +1023,18 @@ td {
                                     Delete
               </button>
                         <?php endif; ?>
-                        <?php if ($document['current_stage'] === 'payment_pending' && !$document['payment_requested']): ?>
-                            <button onclick="requestPayment(<?php echo $document['id']; ?>)" class="text-green-600 hover:text-green-900">
-                                Request Payment
-                            </button>
+                        <?php if ($document['current_stage'] === 'payment_pending'): ?>
+                            <?php if ($document['payment_requested'] && $document['payment_status'] === 'pending'): ?>
+                              <button onclick="viewReceiptAndPay(<?php echo $document['id']; ?>)" 
+                                      class="text-green-600 hover:text-green-800 mr-3">
+                                Pay Now
+                              </button>
+                            <?php elseif ($document['payment_status'] === 'accepted'): ?>
+                              <button disabled 
+                                      class="text-gray-400 cursor-not-allowed mr-3">
+                                Payment Accepted
+                              </button>
+                            <?php endif; ?>
                         <?php endif; ?>
                       </td>
                     </tr>
@@ -1098,6 +1125,11 @@ td {
         <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Document Details</h3>
         <div id="documentDetailsContent" class="space-y-4">
           <!-- Content will be loaded dynamically -->
+          <?php if ($document['current_stage'] === 'payment_accepted'): ?>
+              <button onclick="markAsFinished(<?php echo $document['id']; ?>)" class="text-green-600 hover:text-green-800">
+                  Mark as Finished
+              </button>
+          <?php endif; ?>
         </div>
         <div class="mt-4 flex justify-end">
           <button onclick="closeDocumentDetailsModal()" class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-primary rounded-md">
@@ -1296,7 +1328,78 @@ td {
     </div>
   </div>
 
-  <script>
+  <!-- Client Receipt Modal -->
+  <div id="clientReceiptModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden overflow-y-auto h-full w-full z-50">
+    <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white dark:bg-gray-800">
+      <div class="mt-3 text-center">
+        <div id="clientReceiptContent" class="mt-2 px-7 py-3">
+          <!-- Content will be dynamically inserted here -->
+        </div>
+        <div class="items-center px-4 py-3">
+          <button onclick="closeClientReceiptModal()" 
+                  class="px-4 py-2 bg-gray-500 text-white text-base font-medium rounded-md w-full shadow-sm hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-300">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Profile Modal -->
+  <div id="profile-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden overflow-y-auto h-full w-full z-50">
+    <div id="profile-modal-content" class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white dark:bg-primary-light transform scale-95 opacity-0 transition-all duration-300">
+      <div class="mt-3">
+        <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Profile Settings</h3>
+        <form id="profile-form" class="space-y-4">
+          <div>
+            <label for="profile-username" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Username</label>
+            <input type="text" id="profile-username" name="username" value="<?php echo htmlspecialchars($user['username']); ?>" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-accent focus:ring-accent dark:bg-primary dark:border-gray-600 dark:text-white">
+          </div>
+          <div>
+            <label for="profile-password" class="block text-sm font-medium text-gray-700 dark:text-gray-300">New Password</label>
+            <input type="password" id="profile-password" name="password" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-accent focus:ring-accent dark:bg-primary dark:border-gray-600 dark:text-white">
+          </div>
+          <div>
+            <label for="profile-confirm-password" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Confirm New Password</label>
+            <input type="password" id="profile-confirm-password" name="confirm_password" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-accent focus:ring-accent dark:bg-primary dark:border-gray-600 dark:text-white">
+          </div>
+          <div class="flex justify-end space-x-3">
+            <button type="button" onclick="closeProfileModal()" class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-primary rounded-md">
+              Cancel
+            </button>
+            <button type="submit" class="px-4 py-2 text-sm font-medium text-white bg-accent hover:bg-accent-dark rounded-md">
+              Save Changes
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Modal -->
+  <div id="settings-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden overflow-y-auto h-full w-full z-50">
+    <div id="settings-modal-content" class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white dark:bg-primary-light transform scale-95 opacity-0 transition-all duration-300">
+      <div class="mt-3">
+        <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Settings</h3>
+        <div class="space-y-4">
+          <div class="flex items-center justify-between">
+            <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Dark Mode</span>
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" id="dark-mode-toggle" class="sr-only peer" <?php echo isset($_COOKIE['theme']) && $_COOKIE['theme'] === 'dark' ? 'checked' : ''; ?>>
+              <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-accent/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-accent"></div>
+            </label>
+          </div>
+          <div class="flex justify-end">
+            <button onclick="closeSettingsModal()" class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-primary rounded-md">
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script defer>
     // Notification function
     function showNotification(message, type = 'success') {
         const notification = document.createElement('div');
@@ -1396,6 +1499,9 @@ td {
                                 <p><span class="font-medium">Description:</span> ${doc.description || 'N/A'}</p>
                                 <p><span class="font-medium">Client:</span> ${doc.client_name}</p>
                                 <p><span class="font-medium">Status:</span> ${doc.current_stage.replace(/_/g, ' ').toUpperCase()}</p>
+                                ${(((doc.current_stage === 'finished' || doc.current_stage === 'completed') && '<?php echo $_SESSION["role"]; ?>' === 'client') || 
+                                   ('<?php echo $_SESSION["role"]; ?>' === 'editor' && doc.editor_id === <?php echo $_SESSION["user_id"]; ?>) ||
+                                   ('<?php echo $_SESSION["role"]; ?>' === 'operator' && doc.operator_id === <?php echo $_SESSION["user_id"]; ?>)) ? `
                                 <div class="mt-4">
                                     <a href="php/download_document.php?document_id=${doc.id}" 
                                        class="inline-flex items-center px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent-dark transition-colors">
@@ -1405,6 +1511,15 @@ td {
                                         Download Document
                                     </a>
                                 </div>
+                                ` : ''}
+                                ${('<?php echo $_SESSION["role"]; ?>' === 'sales' && doc.current_stage === 'payment_accepted' && doc.sales_agent_id == <?php echo $_SESSION["user_id"]; ?>) ? `
+                                <button onclick="markAsFinished(${doc.id})" class="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors mt-4">
+                                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                                    </svg>
+                                    Mark as Finished
+                                </button>
+                                ` : ''}
                             </div>
                         </div>
                         <div>
@@ -2021,9 +2136,8 @@ td {
       });
     }
 
-    // Client: View Receipt and Agree to Pay
-    function openClientReceiptModal(documentId) {
-      // Fetch receipt details from backend
+    // Client: View Receipt and Accept Payment
+    function viewReceiptAndPay(documentId) {
       fetch('php/document_handlers.php', {
         method: 'POST',
         headers: {
@@ -2043,15 +2157,14 @@ td {
                 <p class="text-sm text-gray-500 dark:text-gray-400">${new Date().toLocaleString()}</p>
               </div>
               <div class="border-t border-b border-gray-200 dark:border-gray-700 py-4">
-                <p><span class="font-medium">Document:</span> ${data.receipt.document_title}</p>
-                <p><span class="font-medium">Cost:</span> $${data.receipt.cost}</p>
-                <p><span class="font-medium">Operator:</span> ${data.receipt.operator_name}</p>
-                ${data.receipt.notes ? `<p><span class="font-medium">Notes:</span> ${data.receipt.notes}</p>` : ''}
+                <p><span class="font-medium">Document:</span> ${data.receipt.title}</p>
+                <p><span class="font-medium">Sales Agent:</span> ${data.receipt.sales_agent_name}</p>
+                <p><span class="font-medium">Receipt:</span> <a href="${data.receipt.receipt_url}" target="_blank" class="text-blue-600 hover:text-blue-800">View Receipt</a></p>
               </div>
               <div class="text-center">
-                <button onclick="agreeAndPay(${documentId})" 
+                <button onclick="acceptPayment(${documentId})" 
                         class="px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-md">
-                  Agree and Pay
+                  Accept and Pay
                 </button>
               </div>
             </div>
@@ -2071,29 +2184,57 @@ td {
       modal.classList.add('hidden');
     }
 
-    function agreeAndPay(documentId) {
+    function acceptPayment(documentId) {
       if (!confirm('Do you agree to pay and complete the transaction?')) return;
+      
       fetch('php/document_handlers.php', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
         },
-        body: `action=agree_and_pay&document_id=${documentId}`
+        body: `action=accept_payment&document_id=${documentId}`
       })
       .then(response => response.json())
       .then(data => {
         if (data.success) {
-          showNotification('Payment completed and document transferred!', 'success');
+          showNotification('Payment accepted successfully!', 'success');
           closeClientReceiptModal();
           setTimeout(() => {
             window.location.reload();
           }, 1000);
         } else {
-          showNotification(data.message || 'Failed to complete payment', 'error');
+          showNotification(data.message || 'Failed to accept payment', 'error');
         }
       })
       .catch(error => {
-        showNotification('An error occurred while completing payment', 'error');
+        showNotification('An error occurred while accepting payment', 'error');
+      });
+    }
+
+    // Mark as Finished function
+    function markAsFinished(documentId) {
+      if (!confirm('Are you sure you want to mark this document as finished?')) return;
+      
+      fetch('php/document_handlers.php', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: `action=mark_as_finished&document_id=${documentId}`
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          showNotification('Document marked as finished successfully!', 'success');
+          setTimeout(() => {
+            window.location.reload();
+          }, 1000);
+        } else {
+          showNotification(data.message || 'Failed to mark document as finished', 'error');
+        }
+      })
+      .catch(error => {
+        showNotification('An error occurred while marking the document as finished', 'error');
       });
     }
   </script>

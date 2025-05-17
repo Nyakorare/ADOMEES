@@ -1,8 +1,0 @@
-Printing Receipt
-================
-
-Document: qwewq
-Cost: $10.00
-Operator: operator1
-Date: 2025-05-16 18:59:39
-Notes: 

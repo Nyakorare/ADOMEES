@@ -539,125 +539,6 @@ switch ($action) {
             ];
             break;
             
-        case 'make_payment':
-            if ($_SESSION['role'] !== 'client') {
-                throw new Exception('Only clients can make payments');
-            }
-            
-            if (!isset($_POST['document_id']) || !isset($_FILES['receipt'])) {
-                throw new Exception('Missing required fields');
-            }
-            
-            // Verify document belongs to client and is accepted by sales agent
-            $stmt = $conn->prepare("
-                SELECT d.*, da.sales_agent_id 
-                FROM documents d
-                LEFT JOIN document_assignments da ON d.id = da.document_id
-                WHERE d.id = ? AND d.client_id = ? AND da.sales_agent_id IS NOT NULL
-            ");
-            $stmt->bind_param("ii", $_POST['document_id'], $_SESSION['user_id']);
-            $stmt->execute();
-            $document = $stmt->get_result()->fetch_assoc();
-            
-            if (!$document) {
-                throw new Exception('Document not found or not accepted by sales agent');
-            }
-            
-            // Add payment record
-            $stmt = $conn->prepare("
-                INSERT INTO payments (
-                    document_id,
-                    amount,
-                    payment_type,
-                    receipt_file,
-                    status
-                ) VALUES (?, ?, ?, ?, 'completed')
-            ");
-            
-            $receipt_path = uploadFile($_FILES['receipt'], 'receipts');
-            $stmt->bind_param("idss", 
-                $_POST['document_id'],
-                $document['payment_amount'],
-                $document['payment_type'],
-                $receipt_path
-            );
-            $stmt->execute();
-            
-            // Update document status
-            $stmt = $conn->prepare("
-                UPDATE documents 
-                SET status = 'payment_completed'
-                WHERE id = ?
-            ");
-            $stmt->bind_param("i", $_POST['document_id']);
-            $stmt->execute();
-            
-            // Add notification
-            addDocumentNotification(
-                $_POST['document_id'],
-                $document['sales_agent_id'],
-                'Payment has been made for the document',
-                $conn
-            );
-            
-            $response = ['success' => true, 'message' => 'Payment completed successfully'];
-                break;
-                
-        case 'request_payment':
-            if ($_SESSION['role'] !== 'sales') {
-                throw new Exception('Only sales agents can request payments');
-            }
-            
-            if (!isset($_POST['document_id'])) {
-                throw new Exception('Document ID is required');
-            }
-            
-            $document_id = intval($_POST['document_id']);
-            
-            // Verify the document is assigned to this sales agent
-            $check_stmt = $conn->prepare("
-                SELECT d.id, d.title, d.description, w.current_stage 
-                FROM documents d
-                JOIN document_workflow w ON d.id = w.document_id
-                JOIN document_assignments da ON d.id = da.document_id
-                WHERE d.id = ? 
-                AND da.sales_agent_id = ?
-                AND w.current_stage = 'sales_review'
-            ");
-            $check_stmt->bind_param("ii", $document_id, $_SESSION['user_id']);
-            $check_stmt->execute();
-            
-            if ($check_stmt->get_result()->num_rows === 0) {
-                throw new Exception('Document not found or not in the correct stage');
-            }
-            
-            // Update document workflow
-            $update_stmt = $conn->prepare("
-                UPDATE document_workflow 
-                SET current_stage = 'payment_pending',
-                    payment_requested = TRUE,
-                    sales_notes = CONCAT('Payment requested on ', NOW())
-                WHERE document_id = ?
-            ");
-            $update_stmt->bind_param("i", $document_id);
-            
-            if (!$update_stmt->execute()) {
-                throw new Exception('Failed to update document workflow');
-            }
-            
-            // Add workflow history
-            addWorkflowHistory(
-                $document_id,
-                'sales_review',
-                'payment_pending',
-                $_SESSION['user_id'],
-                "Payment requested by sales agent",
-                $conn
-            );
-            
-            $response = ['success' => true];
-            break;
-
         case 'accept_payment':
             if ($_SESSION['role'] !== 'client') {
                 throw new Exception('Only clients can accept payment requests');
@@ -666,52 +547,225 @@ switch ($action) {
             if (!isset($_POST['document_id'])) {
                 throw new Exception('Document ID is required');
             }
-            
-            // Update payment agreement status
-            $stmt = $conn->prepare("
-                UPDATE payment_agreements 
-                SET status = 'accepted',
-                    client_accepted = 1
-                WHERE document_id = ?
-            ");
-            $stmt->bind_param("i", $_POST['document_id']);
-            
-            if ($stmt->execute()) {
-                $document = getDocumentDetails($_POST['document_id'], $conn);
+
+            $document_id = intval($_POST['document_id']);
+
+            // Start transaction
+            $conn->begin_transaction();
+
+            try {
+                // Verify the document belongs to this client and payment has been requested
+                $check_stmt = $conn->prepare("
+                    SELECT d.id, d.client_id, w.payment_requested, w.payment_status, w.cost_receipt_path, w.current_stage,
+                           w.operator_id, o.username as operator_name, c.username as client_name
+                    FROM documents d
+                    JOIN document_workflow w ON d.id = w.document_id
+                    LEFT JOIN users o ON w.operator_id = o.id
+                    JOIN users c ON d.client_id = c.id
+                    WHERE d.id = ? AND d.client_id = ?
+                ");
+                $check_stmt->bind_param("ii", $document_id, $_SESSION['user_id']);
+                $check_stmt->execute();
+                $result = $check_stmt->get_result();
+                $document = $result->fetch_assoc();
+
+                if (!$document) {
+                    throw new Exception('Document not found or not assigned to you');
+                }
+
+                if (!$document['payment_requested']) {
+                    throw new Exception('Payment has not been requested for this document');
+                }
+
+                if ($document['payment_status'] === 'accepted') {
+                    throw new Exception('Payment has already been accepted');
+                }
+
+                // Update payment status and document workflow
+                $update_stmt = $conn->prepare("
+                    UPDATE document_workflow 
+                    SET payment_status = 'accepted',
+                        current_stage = 'payment_accepted',
+                        updated_at = NOW()
+                    WHERE document_id = ?
+                ");
+                $update_stmt->bind_param("i", $document_id);
+
+                if (!$update_stmt->execute()) {
+                    throw new Exception('Failed to update payment status');
+                }
+
+                // Update document status
+                $doc_stmt = $conn->prepare("
+                    UPDATE documents 
+                    SET status = 'payment_accepted'
+                    WHERE id = ?
+                ");
+                $doc_stmt->bind_param("i", $document_id);
+                $doc_stmt->execute();
+
+                // Add workflow history with detailed information
+                $operator_info = $document['operator_name'] ? " (Printed by: " . $document['operator_name'] . ")" : "";
+                addWorkflowHistory(
+                    $document_id,
+                    $document['current_stage'],
+                    'payment_accepted',
+                    $_SESSION['user_id'],
+                    "Payment accepted by client: " . $document['client_name'] . $operator_info,
+                    $conn
+                );
+
+                // Add notification for sales agent
+                $document_details = getDocumentDetails($document_id);
                 addDocumentNotification(
-                    $_POST['document_id'],
-                    $document['sales_agent_id'],
+                    $document_id,
+                    $document_details['sales_agent_id'],
                     'Client has accepted the payment request. You can now mark the document as finished.',
                     $conn
                 );
-                $response = ['success' => true];
-            } else {
-                $response = ['success' => false, 'message' => 'Failed to accept payment'];
+
+                $conn->commit();
+
+                $response = [
+                    'success' => true,
+                    'message' => 'Payment accepted successfully',
+                    'receipt_path' => $document['cost_receipt_path']
+                ];
+            } catch (Exception $e) {
+                $conn->rollback();
+                throw $e;
             }
             break;
-
-        case 'mark_as_finished':
-            if ($_SESSION['role'] !== 'sales') {
-                throw new Exception('Only sales agents can mark documents as finished');
-            }
             
+        case 'get_receipt':
             if (!isset($_POST['document_id'])) {
                 throw new Exception('Document ID is required');
             }
             
-            $result = markDocumentAsFinished($_POST['document_id'], $conn);
+            $document_id = intval($_POST['document_id']);
             
-            if ($result['success']) {
-                $document = getDocumentDetails($_POST['document_id'], $conn);
-                addDocumentNotification(
-                    $_POST['document_id'],
-                    $document['client_id'],
-                    'Your document has been marked as finished and is ready for delivery.',
-                    $conn
-                );
+            // Get receipt information
+            $stmt = $conn->prepare("
+                SELECT w.cost_receipt_path, d.title, s.username as sales_agent_name
+                FROM document_workflow w
+                JOIN documents d ON w.document_id = d.id
+                LEFT JOIN users s ON w.sales_agent_id = s.id
+                WHERE w.document_id = ?
+            ");
+            $stmt->bind_param("i", $document_id);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            $receipt = $result->fetch_assoc();
+            
+            if (!$receipt || !$receipt['cost_receipt_path']) {
+                throw new Exception('Receipt not found');
             }
             
-            $response = $result;
+            // Convert the file path to a web URL
+            $receipt_url = 'uploads/receipts/' . basename($receipt['cost_receipt_path']);
+            
+            $response = [
+                'success' => true,
+                'receipt' => [
+                    'title' => $receipt['title'],
+                    'sales_agent_name' => $receipt['sales_agent_name'],
+                    'receipt_url' => $receipt_url
+                ]
+            ];
+            break;
+
+        case 'mark_as_finished':
+            try {
+                // Check if user is a sales agent
+                if ($_SESSION['role'] !== 'sales') {
+                    throw new Exception('Only sales agents can mark documents as finished');
+                }
+
+                $document_id = $_POST['document_id'] ?? null;
+                if (!$document_id) {
+                    throw new Exception('Document ID is required');
+                }
+
+                // Start transaction
+                $conn->begin_transaction();
+
+                // Verify the document is assigned to this sales agent and payment has been accepted
+                $check_stmt = $conn->prepare("
+                    SELECT d.id, d.client_id, w.current_stage, w.payment_status, w.operator_id, o.username as operator_name
+                    FROM documents d
+                    JOIN document_workflow w ON d.id = w.document_id
+                    JOIN document_assignments da ON d.id = da.document_id
+                    LEFT JOIN users o ON w.operator_id = o.id
+                    WHERE d.id = ? 
+                    AND da.sales_agent_id = ?
+                    AND w.current_stage = 'payment_accepted'
+                    AND w.payment_status = 'accepted'
+                ");
+                $check_stmt->bind_param("ii", $document_id, $_SESSION['user_id']);
+                $check_stmt->execute();
+                $result = $check_stmt->get_result();
+                $document = $result->fetch_assoc();
+
+                if (!$document) {
+                    throw new Exception('Document not found, not assigned to you, or payment has not been accepted');
+                }
+
+                // Update document status
+                $stmt = $conn->prepare("
+                    UPDATE documents 
+                    SET status = 'completed'
+                    WHERE id = ?
+                ");
+                $stmt->bind_param("i", $document_id);
+                $stmt->execute();
+
+                // Update workflow status
+                $stmt = $conn->prepare("
+                    UPDATE document_workflow 
+                    SET current_stage = 'completed',
+                        payment_status = 'completed',
+                        updated_at = NOW()
+                    WHERE document_id = ?
+                ");
+                $stmt->bind_param("i", $document_id);
+                $stmt->execute();
+
+                // Add workflow history with detailed information
+                $operator_info = $document['operator_name'] ? " (Printed by: " . $document['operator_name'] . ")" : "";
+                addWorkflowHistory(
+                    $document_id,
+                    'payment_accepted',
+                    'completed',
+                    $_SESSION['user_id'],
+                    "Transaction completed and document delivered to client" . $operator_info,
+                    $conn
+                );
+
+                // Add notification for client
+                addDocumentNotification(
+                    $document_id,
+                    $document['client_id'],
+                    'Your document has been marked as completed and is ready for download.',
+                    $conn
+                );
+
+                // Commit transaction
+                $conn->commit();
+
+                $response = [
+                    'success' => true,
+                    'message' => 'Document marked as finished successfully'
+                ];
+            } catch (Exception $e) {
+                // Rollback transaction on error
+                if ($conn->inTransaction()) {
+                    $conn->rollback();
+                }
+                $response = [
+                    'success' => false,
+                    'message' => $e->getMessage()
+                ];
+            }
             break;
             
         case 'update_availability':
@@ -968,6 +1022,105 @@ switch ($action) {
 
             $result = finishPrinting($document_id, $_SESSION['user_id'], $printing_cost, $printing_notes, $conn);
             $response = $result;
+            break;
+            
+        case 'request_payment':
+            if ($_SESSION['role'] !== 'sales') {
+                throw new Exception('Only sales agents can request payment');
+            }
+
+            if (!isset($_POST['document_id'])) {
+                throw new Exception('Document ID is required');
+            }
+
+            $document_id = intval($_POST['document_id']);
+
+            // Start transaction
+            $conn->begin_transaction();
+
+            try {
+                // First, get the current document state
+                $check_stmt = $conn->prepare("
+                    SELECT d.id, d.client_id, w.current_stage, w.payment_status, w.payment_requested, da.sales_agent_id
+                    FROM documents d
+                    JOIN document_workflow w ON d.id = w.document_id
+                    LEFT JOIN document_assignments da ON d.id = da.document_id
+                    WHERE d.id = ?
+                ");
+                $check_stmt->bind_param("i", $document_id);
+                $check_stmt->execute();
+                $result = $check_stmt->get_result();
+                $document = $result->fetch_assoc();
+
+                if (!$document) {
+                    throw new Exception('Document not found');
+                }
+
+                if ($document['sales_agent_id'] !== $_SESSION['user_id']) {
+                    throw new Exception('Document is not assigned to you');
+                }
+
+                // Check if payment is already requested
+                if ($document['payment_requested']) {
+                    throw new Exception('Payment has already been requested for this document');
+                }
+
+                // Allow payment request if document is in printing_document or payment_pending stage
+                if ($document['current_stage'] !== 'printing_document' && $document['current_stage'] !== 'payment_pending') {
+                    throw new Exception('Document must be in printing_document or payment_pending stage before requesting payment. Current stage: ' . $document['current_stage']);
+                }
+
+                // Update workflow status
+                $update_stmt = $conn->prepare("
+                    UPDATE document_workflow 
+                    SET current_stage = 'payment_pending',
+                        payment_requested = TRUE,
+                        payment_status = 'pending',
+                        updated_at = NOW()
+                    WHERE document_id = ?
+                ");
+                $update_stmt->bind_param("i", $document_id);
+                
+                if (!$update_stmt->execute()) {
+                    throw new Exception('Failed to update payment status');
+                }
+
+                // Update document status
+                $doc_stmt = $conn->prepare("
+                    UPDATE documents 
+                    SET status = 'payment_pending'
+                    WHERE id = ?
+                ");
+                $doc_stmt->bind_param("i", $document_id);
+                $doc_stmt->execute();
+
+                // Add workflow history
+                addWorkflowHistory(
+                    $document_id,
+                    $document['current_stage'],
+                    'payment_pending',
+                    $_SESSION['user_id'],
+                    "Payment requested by sales agent",
+                    $conn
+                );
+
+                // Add notification for client
+                addDocumentNotification(
+                    $document_id,
+                    $document['client_id'],
+                    'Payment has been requested for your document. Please review and accept the payment.',
+                    $conn
+                );
+
+                $conn->commit();
+                $response = [
+                    'success' => true,
+                    'message' => 'Payment requested successfully'
+                ];
+            } catch (Exception $e) {
+                $conn->rollback();
+                throw $e;
+            }
             break;
             
         default:
