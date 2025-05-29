@@ -382,6 +382,41 @@ td {
         });
       }
     });
+
+    function updateUserRole(selectElement) {
+        const userId = selectElement.dataset.userId;
+        const newRole = selectElement.value;
+        const originalRole = selectElement.dataset.originalRole;
+
+        // Create form data
+        const formData = new FormData();
+        formData.append('user_id', userId);
+        formData.append('role', newRole);
+
+        // Send AJAX request to update role
+        fetch('./php/update_role.php', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showNotification(data.message || 'Role updated successfully', 'success');
+                // Update the original role in the dataset
+                selectElement.dataset.originalRole = newRole;
+            } else {
+                showNotification(data.message || 'Failed to update role', 'error');
+                // Revert the select element to the original role
+                selectElement.value = originalRole;
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showNotification('An error occurred while updating the role', 'error');
+            // Revert the select element to the original role
+            selectElement.value = originalRole;
+        });
+    }
   </script>
 </head>
 

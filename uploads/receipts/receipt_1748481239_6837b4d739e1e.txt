@@ -1,0 +1,8 @@
+Printing Receipt
+================
+
+Document: gustasdas
+Cost: $10.00
+Operator: operator1
+Date: 2025-05-29 03:13:59
+Notes: 

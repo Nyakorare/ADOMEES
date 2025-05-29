@@ -170,6 +170,22 @@ unset($_SESSION['success']);
               <label for="reg-password" class="block text-gray-700 dark:text-gray-300 mb-2">Password</label>
               <input type="password" id="reg-password" name="password" required
                 class="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-primary dark:text-white focus:ring-secondary focus:border-secondary">
+              <!-- Password strength meter -->
+              <div class="mt-2">
+                <div class="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                  <div id="password-strength-meter" class="h-full w-0 transition-all duration-300"></div>
+                </div>
+                <div id="password-requirements" class="mt-2 text-sm">
+                  <p class="text-gray-600 dark:text-gray-400">Password must contain:</p>
+                  <ul class="list-disc list-inside space-y-1">
+                    <li id="length-check" class="text-red-500">At least 8 characters</li>
+                    <li id="uppercase-check" class="text-red-500">One uppercase letter</li>
+                    <li id="lowercase-check" class="text-red-500">One lowercase letter</li>
+                    <li id="number-check" class="text-red-500">One number</li>
+                    <li id="special-check" class="text-red-500">One special character (!@#$%^&*()-_=+{};:,<.>)</li>
+                  </ul>
+                </div>
+              </div>
             </div>
             <div class="flex justify-center">
               <button type="submit" class="btn bg-accent hover:bg-accent-dark text-white font-bold py-3 px-8 rounded-lg shadow-lg transform transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-accent focus:ring-opacity-50">
@@ -204,6 +220,68 @@ unset($_SESSION['success']);
       const toggleForm = document.getElementById('toggle-form');
       const formTitle = document.getElementById('form-title');
       const toggleText = document.getElementById('toggle-text');
+      
+      // Password validation elements
+      const passwordInput = document.getElementById('reg-password');
+      const strengthMeter = document.getElementById('password-strength-meter');
+      const lengthCheck = document.getElementById('length-check');
+      const uppercaseCheck = document.getElementById('uppercase-check');
+      const lowercaseCheck = document.getElementById('lowercase-check');
+      const numberCheck = document.getElementById('number-check');
+      const specialCheck = document.getElementById('special-check');
+      
+      // Password validation function
+      function validatePassword(password) {
+        const checks = {
+          length: password.length >= 8,
+          uppercase: /[A-Z]/.test(password),
+          lowercase: /[a-z]/.test(password),
+          number: /[0-9]/.test(password),
+          special: /[!@#$%^&*()\-_=+{};:,<.>]/.test(password)
+        };
+        
+        // Update requirement indicators
+        lengthCheck.className = checks.length ? 'text-green-500' : 'text-red-500';
+        uppercaseCheck.className = checks.uppercase ? 'text-green-500' : 'text-red-500';
+        lowercaseCheck.className = checks.lowercase ? 'text-green-500' : 'text-red-500';
+        numberCheck.className = checks.number ? 'text-green-500' : 'text-red-500';
+        specialCheck.className = checks.special ? 'text-green-500' : 'text-red-500';
+        
+        // Calculate strength
+        const strength = Object.values(checks).filter(Boolean).length;
+        const strengthPercentage = (strength / 5) * 100;
+        
+        // Update strength meter
+        strengthMeter.style.width = `${strengthPercentage}%`;
+        
+        // Update strength meter color
+        if (strengthPercentage <= 20) {
+          strengthMeter.className = 'h-full w-0 transition-all duration-300 bg-red-500';
+        } else if (strengthPercentage <= 40) {
+          strengthMeter.className = 'h-full w-0 transition-all duration-300 bg-orange-500';
+        } else if (strengthPercentage <= 60) {
+          strengthMeter.className = 'h-full w-0 transition-all duration-300 bg-yellow-500';
+        } else if (strengthPercentage <= 80) {
+          strengthMeter.className = 'h-full w-0 transition-all duration-300 bg-blue-500';
+        } else {
+          strengthMeter.className = 'h-full w-0 transition-all duration-300 bg-green-500';
+        }
+        
+        return strength === 5;
+      }
+      
+      // Add password input event listener
+      passwordInput.addEventListener('input', function() {
+        validatePassword(this.value);
+      });
+      
+      // Form submission validation
+      registerForm.addEventListener('submit', function(e) {
+        if (!validatePassword(passwordInput.value)) {
+          e.preventDefault();
+          alert('Please ensure your password meets all requirements.');
+        }
+      });
       
       toggleForm.addEventListener('click', function(e) {
         e.preventDefault();
