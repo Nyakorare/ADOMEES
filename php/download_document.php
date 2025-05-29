@@ -41,7 +41,7 @@ $user_id = $_SESSION['user_id'];
 $user_role = $_SESSION['role'];
 
 // Clients can download finished documents
-if ($user_role === 'client' && $document['current_stage'] === 'finished') {
+if ($user_role === 'client' && ($document['current_stage'] === 'completed' || $document['status'] === 'completed')) {
     $can_download = $document['client_id'] === $user_id;
 }
 // Editors can download documents assigned to them
@@ -52,19 +52,34 @@ else if ($user_role === 'editor' && $document['editor_id'] === $user_id) {
 else if ($user_role === 'operator' && $document['operator_id'] === $user_id) {
     $can_download = true;
 }
+// Sales agents can download documents assigned to them
+else if ($user_role === 'sales' && $document['sales_agent_id'] === $user_id) {
+    $can_download = true;
+}
+// Admins can download any document
+else if ($user_role === 'admin') {
+    $can_download = true;
+}
 
 if (!$can_download) {
     header('HTTP/1.1 403 Forbidden');
-    exit('You do not have permission to download this document');
+    exit('You do not have permission to download this document. Current stage: ' . $document['current_stage'] . ', Status: ' . $document['status']);
 }
 
 // Get the file path and ensure it's within the uploads directory
-$file_path = '../uploads/documents/' . $document['file_path'];
+$file_path = $document['file_path'];
+
+// Check if it's an edited document (starts with 'edited_')
+if (strpos(basename($file_path), 'edited_') === 0) {
+    $file_path = '../uploads/edited_documents/' . basename($file_path);
+} else {
+    $file_path = '../uploads/documents/' . $file_path;
+}
 
 // Check if file exists
 if (!file_exists($file_path)) {
     header('HTTP/1.1 404 Not Found');
-    exit('File not found');
+    exit('File not found: ' . $file_path);
 }
 
 // Get file info

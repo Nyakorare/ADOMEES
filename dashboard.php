@@ -34,6 +34,7 @@ $role_tabs = [
     'sales' => [
         ['id' => 'available_clients', 'name' => 'Available Clients'],
         ['id' => 'current_clients', 'name' => 'Current Clients'],
+        ['id' => 'completed_documents', 'name' => 'Completed Documents'],
         ['id' => 'editors', 'name' => 'Editors']
     ],
     'editor' => [
@@ -668,7 +669,7 @@ td {
                     <?php echo date('M d, Y H:i', strtotime($document['workflow_updated_at'])); ?>
                   </td>
                   <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    <button onclick="openDocumentDetailsModal(<?php echo $document['id']; ?>)" class="text-accent hover:text-accent-dark mr-3">
+                    <button onclick="openDocumentDetailsModal(<?php echo $document['id']; ?>)" class="text-accent hover:text-accent-dark">
                       View Details
                     </button>
                 <?php if ($document['current_stage'] === 'sales_review'): ?>
@@ -704,6 +705,84 @@ td {
                   </td>
                 </tr>
             <?php endwhile; ?>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <?php endif; ?>
+
+    <?php if ($current_tab === 'completed_documents' && $user['role'] === 'sales'): ?>
+    <!-- Completed Documents Tab (Sales only) -->
+    <div class="card mb-8">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-2xl font-bold text-secondary">Completed Documents</h2>
+        <div class="relative">
+          <input type="text" id="completed-documents-search" placeholder="Search documents..." 
+                 class="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-primary dark:text-white focus:ring-secondary focus:border-secondary">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 absolute right-3 top-2.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+        </div>
+      </div>
+      
+      <div class="overflow-x-auto">
+        <table class="min-w-full bg-white dark:bg-primary-light rounded-lg overflow-hidden">
+          <thead class="bg-gray-100 dark:bg-primary">
+            <tr>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Document Title</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Client</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Completion Date</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="completed-documents-table" class="divide-y divide-gray-200 dark:divide-gray-700">
+            <?php
+            $stmt = $conn->prepare("
+              SELECT d.*, u.username as client_name, dw.updated_at as workflow_updated_at
+              FROM documents d
+              JOIN users u ON d.client_id = u.id
+              JOIN document_workflow dw ON d.id = dw.document_id
+              WHERE dw.sales_agent_id = ? 
+              AND dw.current_stage = 'completed'
+              ORDER BY dw.updated_at DESC
+            ");
+            $stmt->bind_param("i", $_SESSION['user_id']);
+            $stmt->execute();
+            $completed_documents = $stmt->get_result();
+            
+            if ($completed_documents->num_rows === 0):
+            ?>
+              <tr>
+                <td colspan="4" class="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
+                  No completed documents found.
+                </td>
+              </tr>
+            <?php else:
+              while ($document = $completed_documents->fetch_assoc()):
+            ?>
+              <tr class="hover:bg-gray-50 dark:hover:bg-primary transition-colors">
+                <td class="px-6 py-4 whitespace-nowrap">
+                  <div class="text-sm font-medium text-gray-900 dark:text-white"><?php echo htmlspecialchars($document['title']); ?></div>
+                  <?php if ($document['description']): ?>
+                    <div class="text-sm text-gray-500 dark:text-gray-400"><?php echo htmlspecialchars($document['description']); ?></div>
+                  <?php endif; ?>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                  <?php echo htmlspecialchars($document['client_name']); ?>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                  <?php echo date('M d, Y H:i', strtotime($document['workflow_updated_at'])); ?>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                  <button onclick="openDocumentDetailsModal(<?php echo $document['id']; ?>)" class="text-accent hover:text-accent-dark">
+                    View Details
+                  </button>
+                </td>
+              </tr>
+            <?php 
+              endwhile;
+            endif;
+            ?>
           </tbody>
         </table>
       </div>
@@ -913,7 +992,7 @@ td {
                 <?php echo date('M d, Y', strtotime($document['assigned_at'])); ?>
               </td>
               <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                <button onclick="openDocumentDetailsModal(<?php echo $document['id']; ?>)" class="text-accent hover:text-accent-dark mr-3">
+                <button onclick="openDocumentDetailsModal(<?php echo $document['id']; ?>)" class="text-accent hover:text-accent-dark">
                   View Details
                 </button>
                 <?php if ($user['role'] === 'editor' && $document['current_stage'] === 'editor_polishing'): ?>
@@ -987,13 +1066,17 @@ td {
                                                 $stageClass = 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200';
                                                 $stageText = 'Payment Pending';
                                     break;
-                                            case 'finished':
-                                $stageClass = 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
-                                    $stageText = 'Finished';
+                                        case 'payment_accepted':
+                                                $stageClass = 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
+                                                $stageText = 'Payment Accepted';
                                     break;
-                                            default:
-                                        $stageClass = 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200';
-                                        $stageText = 'Unknown';
+                                        case 'completed':
+                                                $stageClass = 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
+                                                $stageText = 'Completed';
+                                    break;
+                                        default:
+                                                $stageClass = 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200';
+                                                $stageText = ucfirst(str_replace('_', ' ', $document['current_stage']));
                             }
                             ?>
                                 <tr class="hover:bg-gray-50 dark:hover:bg-primary transition-colors">
@@ -1015,7 +1098,7 @@ td {
                                 <?php echo date('M d, Y H:i', strtotime($document['workflow_updated_at'])); ?>
                       </td>
                       <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <button onclick="openDocumentDetailsModal(<?php echo $document['id']; ?>)" class="text-accent hover:text-accent-dark mr-3">
+                        <button onclick="openDocumentDetailsModal(<?php echo $document['id']; ?>)" class="text-accent hover:text-accent-dark">
                           View Details
               </button>
                                 <?php if ($document['current_stage'] === 'pending'): ?>
@@ -1079,7 +1162,7 @@ td {
                             <div class="flex text-sm text-gray-600 dark:text-gray-400">
                                 <label for="document" class="relative cursor-pointer bg-white dark:bg-primary-light rounded-md font-medium text-accent hover:text-accent-dark focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-accent">
                                     <span>Upload a file</span>
-                                    <input id="document" name="document" type="file" class="sr-only" required>
+                                    <input id="document" name="document" type="file" class="sr-only" required onchange="previewDocument(this)">
                                 </label>
                                 <p class="pl-1">or drag and drop</p>
           </div>
@@ -1089,7 +1172,19 @@ td {
       </div>
     </div>
                 </div>
-                <div class="flex justify-end">
+                <!-- Document Preview Section -->
+                <div id="documentPreview" class="hidden mt-4">
+                    <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Document Preview</h4>
+                    <div class="border rounded-lg p-4 bg-gray-50 dark:bg-primary">
+                        <div id="previewContent" class="text-center">
+                            <!-- Preview content will be inserted here -->
+                        </div>
+                    </div>
+                </div>
+                <div class="flex justify-end space-x-3">
+                    <button type="button" onclick="closeUploadModal()" class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-primary rounded-md">
+                        Cancel
+                    </button>
                     <button type="submit" class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-accent hover:bg-accent-dark focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent">
                         Upload Document
                     </button>
@@ -1251,13 +1346,22 @@ td {
                             <div class="flex text-sm text-gray-600 dark:text-gray-400">
                                 <label for="document" class="relative cursor-pointer bg-white dark:bg-primary-light rounded-md font-medium text-accent hover:text-accent-dark focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-accent">
                                     <span>Upload a file</span>
-                                    <input id="document" name="document" type="file" class="sr-only" required>
+                                    <input id="document" name="document" type="file" class="sr-only" required onchange="previewDocument(this)">
                                 </label>
                                 <p class="pl-1">or drag and drop</p>
                             </div>
                             <p class="text-xs text-gray-500 dark:text-gray-400">
                                 Any file type accepted
                             </p>
+                        </div>
+                    </div>
+                </div>
+                <!-- Document Preview Section -->
+                <div id="documentPreview" class="hidden mt-4">
+                    <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Document Preview</h4>
+                    <div class="border rounded-lg p-4 bg-gray-50 dark:bg-primary">
+                        <div id="previewContent" class="text-center">
+                            <!-- Preview content will be inserted here -->
                         </div>
                     </div>
                 </div>
@@ -2236,6 +2340,56 @@ td {
       .catch(error => {
         showNotification('An error occurred while marking the document as finished', 'error');
       });
+    }
+
+    // Document preview function
+    function previewDocument(input) {
+        const preview = document.getElementById('documentPreview');
+        const previewContent = document.getElementById('previewContent');
+        
+        if (input.files && input.files[0]) {
+            const file = input.files[0];
+            const fileType = file.type;
+            
+            // Show preview section
+            preview.classList.remove('hidden');
+            
+            // Create preview based on file type
+            if (fileType.startsWith('image/')) {
+                // Image preview
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    previewContent.innerHTML = `
+                        <img src="${e.target.result}" alt="Document preview" class="max-h-48 mx-auto">
+                        <p class="mt-2 text-sm text-gray-600 dark:text-gray-400">${file.name}</p>
+                    `;
+                };
+                reader.readAsDataURL(file);
+            } else if (fileType === 'application/pdf') {
+                // PDF preview
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    previewContent.innerHTML = `
+                        <iframe src="${e.target.result}" class="w-full h-48 border-0"></iframe>
+                        <p class="mt-2 text-sm text-gray-600 dark:text-gray-400">${file.name}</p>
+                    `;
+                };
+                reader.readAsDataURL(file);
+            } else {
+                // Generic file preview
+                previewContent.innerHTML = `
+                    <div class="flex items-center justify-center h-48">
+                        <svg class="w-16 h-16 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                        </svg>
+                    </div>
+                    <p class="mt-2 text-sm text-gray-600 dark:text-gray-400">${file.name}</p>
+                `;
+            }
+        } else {
+            // Hide preview if no file selected
+            preview.classList.add('hidden');
+        }
     }
   </script>
 </body>

@@ -122,9 +122,17 @@ function getFilesByOperator($operator_id, $conn) {
 }
 
 function getAllUsers($conn) {
-    $stmt = $conn->prepare("SELECT id, username, email, role FROM users");
-    $stmt->execute();
-    return $stmt->get_result();
+    // Force lowercase comparison to catch 'Admin', 'ADMIN', etc.
+    $query = "SELECT id, username, email, role, created_at FROM users WHERE LOWER(role) != 'admin'";
+    
+    // Optional: Also exclude the current admin if you're logged in as one (extra safety)
+    if (isset($_SESSION['role']) && strtolower($_SESSION['role']) === 'admin') {
+        $query .= " AND id != " . (int)$_SESSION['user_id'];
+    }
+    
+    $query .= ")"; // Close the WHERE clause
+    $result = $conn->query($query);
+    return $result;
 }
 
 function assignClientToSalesAgent($client_id, $sales_agent_id, $conn) {

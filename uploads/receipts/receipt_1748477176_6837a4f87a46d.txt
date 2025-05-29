@@ -1,0 +1,8 @@
+Printing Receipt
+================
+
+Document: GUESTGO
+Cost: $100.00
+Operator: operator1
+Date: 2025-05-29 02:06:16
+Notes: 

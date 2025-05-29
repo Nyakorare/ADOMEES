@@ -1,0 +1,8 @@
+Printing Receipt
+================
+
+Document: test1adasdd
+Cost: $100.00
+Operator: operator1
+Date: 2025-05-29 02:16:50
+Notes: 
